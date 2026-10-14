@@ -1,0 +1,10 @@
+**/node_modules
+**/dist
+**/.local-data
+**/coverage
+.git
+**/.env
+**/.env.*
+!**/.env.example
+*.log
+playwright-artifacts

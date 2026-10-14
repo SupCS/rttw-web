@@ -1,0 +1,26 @@
+{
+  "name": "rttw-web-project",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "workspaces": ["apps/*", "packages/*"],
+  "engines": { "node": ">=22.13" },
+  "scripts": {
+    "dev": "npm run build --workspace @rttw/domain && npm run dev --workspace @rttw/web",
+    "preview": "npm run preview --workspace @rttw/web",
+    "start": "npm run start --workspace @rttw/api",
+    "api": "npm run build --workspace @rttw/domain && npm run dev --workspace @rttw/api",
+    "api:local": "npm run build --workspace @rttw/domain && npm run dev:local --workspace @rttw/api",
+    "smoke:online": "node scripts/smoke-online.mjs",
+    "typecheck": "npm run build --workspace @rttw/domain && npm run typecheck --workspaces --if-present",
+    "test": "vitest run && npm run test --workspace @rttw/api",
+    "check:instructions": "node scripts/check-agent-guidance.mjs",
+    "check": "npm run check:instructions && npm run typecheck",
+    "check:full": "npm run check && npm test",
+    "build": "npm run build --workspace @rttw/domain && npm run build --workspace @rttw/web && npm run build --workspace @rttw/api"
+  },
+  "devDependencies": {
+    "typescript": "~6.0.3",
+    "vitest": "^4.1.11"
+  }
+}
