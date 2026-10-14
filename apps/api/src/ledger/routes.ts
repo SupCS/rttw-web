@@ -37,7 +37,7 @@ export function registerLedgerRoutes(app: FastifyInstance, auth: AuthService, le
       const parsed = query.safeParse(request.query);
       if (!parsed.success) return reply.code(400).send({ error: 'invalid_request' });
       const backup = await ledger.exportBackup(user.id, parsed.data.householdId);
-      return reply.header('cache-control', 'no-store').header('content-disposition', 'attachment; filename="rttw-web-backup.json"').send(backup);
+      return reply.header('cache-control', 'no-store').header('content-disposition', 'attachment; filename="wealthy-backup.json"').send(backup);
     } catch (error) { return failure(error, reply); }
   });
   app.post('/api/ledger/restore', { bodyLimit: 25 * 1024 * 1024 }, async (request, reply) => {

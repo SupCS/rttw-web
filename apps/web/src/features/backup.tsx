@@ -16,7 +16,7 @@ export function Backup({ refresh, ...props }: FeatureProps & { refresh: () => Pr
     try {
       const backup = await request<unknown>(`/api/ledger/backup?householdId=${snapshot.household.id}`);
       const url = URL.createObjectURL(new Blob([JSON.stringify(backup, null, 2)], { type: 'application/json' }));
-      const link = document.createElement('a'); link.href = url; link.download = `rttw-backup-${today()}.json`; link.click(); setTimeout(() => URL.revokeObjectURL(url), 1_000);
+      const link = document.createElement('a'); link.href = url; link.download = `wealthy-backup-${today()}.json`; link.click(); setTimeout(() => URL.revokeObjectURL(url), 1_000);
     } catch (failure) { setError(errorText(failure, t)); } finally { setWorking(false); }
   }
   async function selectFile(event: ChangeEvent<HTMLInputElement>) {

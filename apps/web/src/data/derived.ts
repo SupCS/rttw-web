@@ -10,8 +10,8 @@ export function audit(memberId: string, existing?: AuditFields): AuditFields {
 export function isActual(transaction: Transaction, date: string): boolean {
   return !transaction.deletedAt && (transaction.status === 'confirmed' || transaction.status === 'fx_pending') && transaction.transactionDate <= date;
 }
-export function scopedAccounts(snapshot: LedgerSnapshot, scope: 'personal' | 'household'): Account[] {
-  return snapshot.accounts.filter((account) => !account.deletedAt && !account.isArchived && (scope === 'household' || (account.ownershipScope === 'personal' && account.ownerMemberId === snapshot.member.id)));
+export function scopedAccounts(snapshot: LedgerSnapshot, scope: 'personal' | 'household', includeDeleted = false): Account[] {
+  return snapshot.accounts.filter((account) => (includeDeleted || !account.deletedAt) && (scope === 'household' || (account.ownershipScope === 'personal' && account.ownerMemberId === snapshot.member.id)));
 }
 export function accountBalances(snapshot: LedgerSnapshot, account: Account, date: string): WireMoney[] {
   const totals = new Map<MoneyCurrencyCode, bigint>();
@@ -39,7 +39,7 @@ export function reportPeriod(kind: 'day' | 'week' | 'month' | 'year', anchor: st
   return { from: start.toISOString().slice(0, 10), to: end.toISOString().slice(0, 10) };
 }
 export function cashFlow(snapshot: LedgerSnapshot, scope: 'personal' | 'household', period: ReportPeriod, date: string, reporting = false, reportAmounts?: Readonly<Record<string, WireMoney>>, reportCurrency = snapshot.household.baseCurrency, planned = false) {
-  const ids = new Set(scopedAccounts(snapshot, scope).map((account) => account.id));
+  const ids = new Set(scopedAccounts(snapshot, scope, !planned).map((account) => account.id));
   const totals = new Map<MoneyCurrencyCode, { income: bigint; expense: bigint }>();
   let pending = 0;
   for (const transaction of snapshot.transactions) {
@@ -58,7 +58,7 @@ export function categoryLabel(category: Category, categories: Category[], langua
   return `${parent ? `${parent.names[language]} / ` : ''}${category.names[language]}`;
 }
 export function categoryRollup(snapshot: LedgerSnapshot, scope: 'personal' | 'household', period: ReportPeriod, date: string, reportAmounts?: Readonly<Record<string, WireMoney>>, planned = false) {
-  const ids = new Set(scopedAccounts(snapshot, scope).map((account) => account.id));
+  const ids = new Set(scopedAccounts(snapshot, scope, !planned).map((account) => account.id));
   const totals = new Map<string, { categoryId: string | null; currency: MoneyCurrencyCode; amount: bigint; children: Map<string, { categoryId: string | null; amount: bigint }> }>();
   function add(categoryId: string | null, money: WireMoney) {
     const category = snapshot.categories.find((item) => item.id === categoryId);

@@ -142,6 +142,8 @@ export type LedgerSnapshot = Readonly<{
 
 export type LedgerCommand =
   | { type: 'account.save'; account: Account; expectedRevision?: number }
+  | { type: 'account.delete'; id: string; expectedRevision: number; asOf: string; expectedBalances: WireMoney[]; destinationAccountId: string | null }
+  | { type: 'category.delete'; id: string; expectedRevision: number }
   | { type: 'category.save'; category: Category; expectedRevision?: number }
   | { type: 'transaction.save'; transaction: Transaction; splits: TransactionSplit[]; expectedRevision?: number }
   | { type: 'transfer.create'; debit: Transaction; credit: Transaction; link: TransferLink; fee?: Transaction }
@@ -180,14 +182,12 @@ export interface LedgerRepository {
   getActiveMember(householdId: string): Promise<HouseholdMember | null>;
   saveAccount(account: Account): Promise<void>;
   getAccount(accountId: string): Promise<Account | null>;
-  setAccountArchived(accountId: string, archived: boolean, updatedAt: string, updatedByMemberId: string): Promise<void>;
   listAccounts(householdId: string): Promise<Account[]>;
   listAccountSummaries(householdId: string): Promise<AccountSummary[]>;
   getBalances(scope: BalanceScope): Promise<Money[]>;
   saveCategory(category: Category): Promise<void>;
   getCategory(categoryId: string): Promise<Category | null>;
   listCategories(householdId: string): Promise<Category[]>;
-  setCategoryArchived(categoryId: string, archived: boolean, updatedAt: string, updatedByMemberId: string): Promise<void>;
   saveTransaction(transaction: Transaction, splits: TransactionSplit[]): Promise<void>;
   getTransaction(transactionId: string): Promise<TransactionDetails | null>;
   listTransactions(householdId: string): Promise<Transaction[]>;

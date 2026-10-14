@@ -250,7 +250,7 @@ export class LedgerService {
     while (parentId) {
       if (seen.has(parentId)) fail('category_parent_cycle');
       seen.add(parentId);
-      const parent = ctx.state.categories.find((item) => item.id === parentId && item.deletedAt === null);
+      const parent = ctx.state.categories.find((item) => item.id === parentId && (item.deletedAt === null || value.deletedAt !== null));
       if (!parent) fail('category_parent_not_found');
       if (parent.applicability !== 'both' && parent.applicability !== value.applicability) fail('category_applicability_mismatch');
       parentId = parent.parentId;
@@ -268,19 +268,17 @@ export class LedgerService {
     }
   }
 
-  private categoryForTransaction(ctx: Context, id: string, value: Transaction, allowArchived = false) {
-    const category = ctx.state.categories.find((item) => item.id === id && item.deletedAt === null);
+  private categoryForTransaction(ctx: Context, id: string, value: Transaction, allowExisting = false) {
+    const category = ctx.state.categories.find((item) => item.id === id && (item.deletedAt === null || allowExisting));
     if (!category) fail('category_not_found');
-    if (category.isArchived && !allowArchived) fail('category_archived');
     const desired = value.transactionType === 'income' || value.transactionType === 'refund' ? 'income' : 'expense';
     if (category.applicability !== 'both' && category.applicability !== desired) fail('category_applicability_mismatch');
   }
 
-  private transaction(ctx: Context, value: Transaction, splits: TransactionSplit[], previous?: Transaction, existingCategories = false) {
+  private transaction(ctx: Context, value: Transaction, splits: TransactionSplit[], previous?: Transaction, existingCategories = false, historical = false) {
     this.scope(ctx, value);
-    const account = ctx.state.accounts.find((item) => item.id === value.accountId && item.deletedAt === null);
+    const account = ctx.state.accounts.find((item) => item.id === value.accountId && (item.deletedAt === null || historical));
     if (!account) fail('account_not_found');
-    if (account.isArchived && previous?.accountId !== account.id) fail('account_archived');
     if (!account.openingBalances.some((balance) => balance.currency === value.originalAmount.currency)) fail('account_currency_not_found');
     if (value.memberId && !ctx.members.some((item) => item.id === value.memberId)) fail('member_not_found');
     const amount = BigInt(value.originalAmount.amountMinor);
@@ -321,16 +319,18 @@ export class LedgerService {
     if (amount <= 0n || !same(link.sentAmount, link.receivedAmount) || debit.originalAmount.currency !== link.sentAmount.currency || credit.originalAmount.currency !== link.sentAmount.currency || BigInt(debit.originalAmount.amountMinor) !== -amount || BigInt(credit.originalAmount.amountMinor) !== amount) fail('transfer_amount_mismatch');
     if (debit.transactionDate !== credit.transactionDate || !compatiblePostingStatus(debit.status, credit.status) || debit.categoryId || credit.categoryId) fail('invalid_transfer');
     if ([debit, credit, ...(fee ? [fee] : [])].some((transaction) => (transaction.deletedAt === null) !== (link.deletedAt === null))) fail('invalid_transfer_delete_state');
-    this.transaction(ctx, debit, [], restoring ? debit : undefined);
-    this.transaction(ctx, credit, [], restoring ? credit : undefined);
+    this.transaction(ctx, debit, [], restoring ? debit : undefined, false, restoring);
+    this.transaction(ctx, credit, [], restoring ? credit : undefined, false, restoring);
     if (fee) {
       if (fee.transactionType !== 'expense' || fee.accountId !== debit.accountId || fee.originalAmount.currency !== debit.originalAmount.currency || fee.transactionDate !== debit.transactionDate || !compatiblePostingStatus(fee.status, debit.status)) fail('invalid_transfer_fee');
-      this.transaction(ctx, fee, [], restoring ? fee : undefined);
+      this.transaction(ctx, fee, [], restoring ? fee : undefined, false, restoring);
     }
   }
 
   private recurring(ctx: Context, rule: RecurringRule, previous?: RecurringRule) {
     this.scope(ctx, rule);
+    const paymentAccount = getRecurringPayment(rule, ctx.state.transactions, ctx.state.splits)?.accountId;
+    if (!ctx.state.accounts.some((account) => account.id === paymentAccount && !account.deletedAt)) fail('account_deleted', 409);
     if (rule.endsOn && rule.endsOn < rule.startsOn) fail('invalid_recurring_dates');
     if (!rule.payment) {
       const template = ctx.state.transactions.find((transaction) => transaction.id === rule.templateTransactionId && (transaction.deletedAt === null || !rule.isActive));
@@ -352,7 +352,7 @@ export class LedgerService {
   private validateWholeLedger(ctx: Context) {
     for (const account of ctx.state.accounts) this.account(ctx, account);
     for (const category of ctx.state.categories) this.category(ctx, category);
-    for (const transaction of ctx.state.transactions) this.transaction(ctx, transaction, ctx.state.splits.filter((split) => split.transactionId === transaction.id && (split.deletedAt === null || transaction.deletedAt !== null && split.deletedAt === transaction.deletedAt)), transaction);
+    for (const transaction of ctx.state.transactions) this.transaction(ctx, transaction, ctx.state.splits.filter((split) => split.transactionId === transaction.id && (split.deletedAt === null || transaction.deletedAt !== null && split.deletedAt === transaction.deletedAt)), transaction, false, true);
     for (const split of ctx.state.splits) if (!ctx.state.transactions.some((transaction) => transaction.id === split.transactionId)) fail('invalid_split_reference');
     const linked = new Set<string>();
     for (const link of ctx.state.transferLinks) {
@@ -374,19 +374,39 @@ export class LedgerService {
     switch (command.type) {
       case 'account.save': {
         const previous = ctx.state.accounts.find((item) => item.id === command.account.id);
+        if (previous?.deletedAt) fail('account_deleted', 409);
         this.expected(previous, command.expectedRevision); this.account(ctx, command.account);
-        await this.persist(ctx, 'account', this.audit(ctx, command.account, previous)); return;
+        await this.persist(ctx, 'account', this.audit(ctx, { ...command.account, isArchived: false }, previous)); return;
+      }
+      case 'account.delete': return this.deleteAccount(ctx, command);
+      case 'category.delete': {
+        const category = ctx.state.categories.find((item) => item.id === command.id && !item.deletedAt);
+        if (!category) fail('category_not_found', 404);
+        this.expected(category, command.expectedRevision);
+        // Keep labels and historical allocations; only future selection is removed.
+        for (const child of [...ctx.state.categories]) if (child.parentId === category.id && !child.deletedAt) {
+          await this.persist(ctx, 'category', this.audit(ctx, { ...child, parentId: category.parentId }, child));
+        }
+        for (const rule of [...ctx.state.recurringRules]) {
+          const payment = getRecurringPayment(rule, ctx.state.transactions, ctx.state.splits);
+          if (!rule.deletedAt && payment && (payment.categoryId === category.id || payment.splits.some((split) => split.categoryId === category.id))) {
+            await this.persist(ctx, 'recurring', { ...this.audit(ctx, rule, rule), isActive: false, deletedAt: ctx.now });
+          }
+        }
+        await this.persist(ctx, 'category', { ...this.audit(ctx, category, category), isArchived: false, deletedAt: ctx.now }); return;
       }
       case 'category.save': {
         const previous = ctx.state.categories.find((item) => item.id === command.category.id);
+        if (previous?.deletedAt) fail('category_deleted', 409);
         if (command.category.systemKey !== (previous?.systemKey ?? null)) fail('system_category_key_immutable');
         this.expected(previous, command.expectedRevision); this.category(ctx, command.category);
-        await this.persist(ctx, 'category', this.audit(ctx, command.category, previous)); return;
+        await this.persist(ctx, 'category', this.audit(ctx, { ...command.category, isArchived: false }, previous)); return;
       }
       case 'transaction.save': {
         const previous = ctx.state.transactions.find((item) => item.id === command.transaction.id);
         this.expected(previous, command.expectedRevision);
         if (previous?.deletedAt) fail('transaction_deleted', 409);
+        if (previous && ctx.state.accounts.some((account) => account.id === previous.accountId && account.deletedAt)) fail('account_deleted', 409);
         if (command.transaction.transactionType === 'transfer' || ctx.state.transferLinks.some((link) => [link.debitTransactionId, link.creditTransactionId, link.feeTransactionId].includes(command.transaction.id))) fail('linked_transfer_edit_not_allowed');
         this.transaction(ctx, command.transaction, command.splits, previous);
         for (const split of command.splits) if (ctx.state.splits.some((item) => item.id === split.id && item.transactionId !== command.transaction.id)) fail('split_id_in_use', 409);
@@ -431,6 +451,7 @@ export class LedgerService {
         if ((previous.deletedAt !== null) === (deletedAt !== null)) return;
         const links = ctx.state.transferLinks.filter((link) => [link.debitTransactionId, link.creditTransactionId, link.feeTransactionId].includes(command.id));
         const ids = new Set([command.id, ...links.flatMap((link) => [link.debitTransactionId, link.creditTransactionId, ...(link.feeTransactionId ? [link.feeTransactionId] : [])])]);
+        if (ctx.state.transactions.some((transaction) => ids.has(transaction.id) && ctx.state.accounts.some((account) => account.id === transaction.accountId && account.deletedAt))) fail('account_deleted', 409);
         for (const transaction of [...ctx.state.transactions]) if (ids.has(transaction.id)) await this.persist(ctx, 'transaction', { ...this.audit(ctx, transaction, transaction), deletedAt });
         for (const split of [...ctx.state.splits]) if (ids.has(split.transactionId) && (deletedAt ? split.deletedAt === null : split.deletedAt === previous.deletedAt)) await this.persist(ctx, 'split', { ...this.audit(ctx, split, split), deletedAt });
         for (const link of links) await this.persist(ctx, 'transfer', { ...this.audit(ctx, link, link), deletedAt });
@@ -455,7 +476,7 @@ export class LedgerService {
       }
       case 'category.merge': {
         const source = ctx.state.categories.find((item) => item.id === command.sourceCategoryId && item.deletedAt === null);
-        const target = ctx.state.categories.find((item) => item.id === command.targetCategoryId && item.deletedAt === null && !item.isArchived);
+        const target = ctx.state.categories.find((item) => item.id === command.targetCategoryId && item.deletedAt === null);
         if (!source || !target || source.id === target.id) fail('invalid_category_merge');
         this.expected(source, command.expectedRevision);
         if (target.applicability !== 'both' && target.applicability !== source.applicability) fail('category_applicability_mismatch');
@@ -477,9 +498,70 @@ export class LedgerService {
           const categoryId = splits.length === 1 ? splits[0]!.categoryId : payment.categoryId === source.id ? target.id : payment.categoryId;
           await this.persist(ctx, 'recurring', this.audit(ctx, { ...rule, payment: { ...payment, categoryId, splits: splits.length === 1 ? [] : splits } }, rule));
         }
-        await this.persist(ctx, 'category', this.audit(ctx, { ...source, isArchived: true }, source)); return;
+        await this.persist(ctx, 'category', { ...this.audit(ctx, source, source), isArchived: false, deletedAt: ctx.now }); return;
       }
     }
+  }
+
+  private async deleteAccount(ctx: Context, command: Extract<ParsedCommand, { type: 'account.delete' }>) {
+    const source = ctx.state.accounts.find((account) => account.id === command.id && !account.deletedAt);
+    if (!source) fail('account_not_found', 404);
+    this.expected(source, command.expectedRevision);
+    const serverDay = Date.parse(ctx.now.slice(0, 10));
+    if (Math.abs(Date.parse(command.asOf) - serverDay) > 86400000) fail('invalid_date');
+    const rules = ctx.state.recurringRules.filter((rule) => !rule.deletedAt && recurringTemplate(rule, ctx.state.transactions)?.accountId === source.id);
+    for (const rule of rules) await this.catchUp(ctx, command.asOf, rule.id);
+    const balances = new Map(source.openingBalances.map((value) => [value.currency, BigInt(value.amountMinor)]));
+    for (const transaction of ctx.state.transactions) {
+      if (transaction.accountId !== source.id || transaction.deletedAt || transaction.transactionDate > command.asOf || !['confirmed', 'fx_pending'].includes(transaction.status)) continue;
+      const { currency, amountMinor } = transaction.originalAmount;
+      balances.set(currency, (balances.get(currency) ?? 0n) + BigInt(amountMinor));
+    }
+    if (command.expectedBalances.length !== balances.size || new Set(command.expectedBalances.map((value) => value.currency)).size !== balances.size ||
+      command.expectedBalances.some((value) => balances.get(value.currency) !== BigInt(value.amountMinor))) fail('balance_changed', 409);
+    let target = command.destinationAccountId === null ? null : ctx.state.accounts.find((account) => account.id === command.destinationAccountId && !account.deletedAt && account.id !== source.id);
+    if (command.destinationAccountId !== null && !target) fail('invalid_transfer');
+    if (target) {
+      const missing = [...balances].filter(([currency, amount]) => amount !== 0n && !target!.openingBalances.some((value) => value.currency === currency));
+      if (missing.length) {
+        target = this.audit(ctx, { ...target, openingBalances: [...target.openingBalances, ...missing.map(([currency]) => ({ currency, amountMinor: '0' }))] }, target);
+        this.account(ctx, target);
+        await this.persist(ctx, 'account', target);
+      }
+      for (const [currency, amount] of balances) {
+        if (amount === 0n) continue;
+        const absolute = amount < 0n ? -amount : amount;
+        if (!moneySchema.safeParse({ currency, amountMinor: absolute.toString() }).success) fail('invalid_amount');
+        const makeTransaction = (accountId: string, amountMinor: bigint): Transaction => {
+          const originalAmount = { currency, amountMinor: amountMinor.toString() };
+          return { id: randomUUID(), createdAt: ctx.now, updatedAt: ctx.now, createdByMemberId: ctx.member.id, updatedByMemberId: ctx.member.id, revision: 1, deletedAt: null,
+            householdId: ctx.householdId, accountId, memberId: ctx.member.id, categoryId: null, transactionType: 'transfer', transactionDate: command.asOf,
+            postingDate: null, source: 'manual', status: currency === ctx.household.baseCurrency ? 'confirmed' : 'fx_pending', originalAmount,
+            reportingAmount: currency === ctx.household.baseCurrency ? originalAmount : null, fxSnapshot: null, description: null, notes: null };
+        };
+        // A negative balance moves the liability: debit the destination, credit the closing account.
+        const debit = makeTransaction(amount > 0n ? source.id : target.id, -absolute);
+        const credit = makeTransaction(amount > 0n ? target.id : source.id, absolute);
+        const link: TransferLink = { id: randomUUID(), createdAt: ctx.now, updatedAt: ctx.now, createdByMemberId: ctx.member.id, updatedByMemberId: ctx.member.id,
+          revision: 1, deletedAt: null, householdId: ctx.householdId, debitTransactionId: debit.id, creditTransactionId: credit.id, feeTransactionId: null,
+          sentAmount: { currency, amountMinor: absolute.toString() }, receivedAmount: { currency, amountMinor: absolute.toString() } };
+        this.transfer(ctx, debit, credit, link);
+        await this.persist(ctx, 'transaction', debit);
+        await this.persist(ctx, 'transaction', credit);
+        await this.persist(ctx, 'transfer', link);
+      }
+    }
+    // Cancel future/unposted entries, including both sides of any planned transfer.
+    const cancelled = new Set(ctx.state.transactions.filter((transaction) => transaction.accountId === source.id && !transaction.deletedAt &&
+      (transaction.transactionDate > command.asOf || !['confirmed', 'fx_pending'].includes(transaction.status))).map((transaction) => transaction.id));
+    for (const link of [...ctx.state.transferLinks]) if (!link.deletedAt && [link.debitTransactionId, link.creditTransactionId, link.feeTransactionId].some((id) => id && cancelled.has(id))) {
+      for (const id of [link.debitTransactionId, link.creditTransactionId, link.feeTransactionId]) if (id) cancelled.add(id);
+      await this.persist(ctx, 'transfer', { ...this.audit(ctx, link, link), deletedAt: ctx.now });
+    }
+    for (const transaction of [...ctx.state.transactions]) if (cancelled.has(transaction.id)) await this.persist(ctx, 'transaction', { ...this.audit(ctx, transaction, transaction), deletedAt: ctx.now });
+    for (const split of [...ctx.state.splits]) if (!split.deletedAt && cancelled.has(split.transactionId)) await this.persist(ctx, 'split', { ...this.audit(ctx, split, split), deletedAt: ctx.now });
+    for (const rule of rules) await this.persist(ctx, 'recurring', { ...this.audit(ctx, rule, rule), isActive: false, deletedAt: ctx.now });
+    await this.persist(ctx, 'account', { ...this.audit(ctx, source, source), isArchived: false, deletedAt: ctx.now });
   }
 
   private async catchUp(ctx: Context, throughDate: string, ruleId?: string) {
@@ -489,7 +571,7 @@ export class LedgerService {
       if (!rule.isActive || rule.deletedAt || ruleId && rule.id !== ruleId) continue;
       const template = recurringTemplate(rule, ctx.state.transactions);
       if (!template) continue;
-      if (ctx.state.accounts.some((account) => account.id === template.accountId && (account.isArchived || account.deletedAt))) continue;
+      if (ctx.state.accounts.some((account) => account.id === template.accountId && account.deletedAt)) continue;
       const scheduled = occurrencesThrough(rule, throughDate, 10001);
       if (scheduled.length > 10000) fail('recurring_catchup_limit');
       const legacy = rule.payment && rule.templateTransactionId ? ctx.state.transactions.find((item) => item.id === rule.templateTransactionId) : undefined;
@@ -522,7 +604,7 @@ export class LedgerService {
 
   private nextPendingFx(state: LedgerSnapshot) {
     const attemptKey = (transaction: Transaction) => `${state.household.id}/${transaction.id}`;
-    return state.transactions.filter((transaction) => transaction.deletedAt === null && transaction.status === 'fx_pending' && transaction.reportingAmount === null && transaction.fxSnapshot === null)
+    return state.transactions.filter((transaction) => transaction.deletedAt === null && transaction.status === 'fx_pending' && transaction.reportingAmount === null && transaction.fxSnapshot === null && state.accounts.some((account) => account.id === transaction.accountId && !account.deletedAt))
       .sort((a, b) => (this.fxAttemptTimes.get(attemptKey(a)) ?? 0) - (this.fxAttemptTimes.get(attemptKey(b)) ?? 0))
       .at(0);
   }

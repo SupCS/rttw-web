@@ -22,10 +22,10 @@ export function majorInput(value: WireMoney): string {
   return precision ? `${digits.slice(0, -precision)}.${digits.slice(-precision)}` : digits;
 }
 export function signedMajorInput(value: WireMoney): string { return `${BigInt(value.amountMinor) < 0n ? '-' : ''}${majorInput(value)}`; }
-export function Dialog({ title, onClose, children, t, busy = false }: { title: string; onClose: () => void; children: ReactNode; t: Text; busy?: boolean }) {
+export function Dialog({ title, onClose, children, t, busy = false, className }: { title: string; onClose: () => void; children: ReactNode; t: Text; busy?: boolean; className?: string }) {
   const ref = useRef<HTMLDialogElement>(null);
   useEffect(() => { const target = ref.current; const previous=document.body.style.overflow; document.body.style.overflow='hidden'; target?.showModal(); return () => { target?.close(); document.body.style.overflow=previous; }; }, []);
-  return <dialog ref={ref} onCancel={(event) => { if (busy) event.preventDefault(); else onClose(); }} aria-labelledby="dialog-title"><div className="dialog-header"><h2 id="dialog-title">{title}</h2><button type="button" className="icon-button" onClick={onClose} disabled={busy} aria-label={t.close}>×</button></div>{children}</dialog>;
+  return <dialog ref={ref} className={className} onCancel={(event) => { if (busy) event.preventDefault(); else onClose(); }} aria-labelledby="dialog-title"><div className="dialog-header"><h2 id="dialog-title">{title}</h2><button type="button" className="icon-button" onClick={onClose} disabled={busy} aria-label={t.close}>×</button></div>{children}</dialog>;
 }
 export function ErrorMessage({ message }: { message: string }) { return message ? <p className="error" role="alert">{message}</p> : null; }
 export function SubmitButtons({ busy, t, onClose }: { busy: boolean; t: Text; onClose: () => void }) {

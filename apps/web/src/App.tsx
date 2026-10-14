@@ -56,7 +56,7 @@ export function App() {
   const expired = () => { setSession(null); setStatus('loading'); setAttempt((value) => value + 1); };
   return <div className="app" style={themeStyle(theme) as CSSProperties}>
     {status === 'ready' && webSession ? <LedgerShell webSession={webSession} setSession={setSession} preferences={preferences} onExpired={expired} /> : <>
-      <header className="welcome-header"><a className="brand" href="#overview"><span className="brand-symbol"><Icon name="arrow"/></span> RTTW</a><Field label={t.language}><select value={preferences.language} onChange={(event) => preferences.setLanguage(event.target.value as Language)}>{Object.entries(languages).map(([code, value]) => <option key={code} value={code}>{value.flag} {value.label}</option>)}</select></Field></header>
+      <header className="welcome-header"><a className="brand" href="#overview"><span className="brand-symbol"><Icon name="arrow"/></span> wealthy</a><Field label={t.language}><select value={preferences.language} onChange={(event) => preferences.setLanguage(event.target.value as Language)}>{Object.entries(languages).map(([code, value]) => <option key={code} value={code}>{value.flag} {value.label}</option>)}</select></Field></header>
       <main className="welcome-main">{status === 'loading' ? <p className="empty" role="status">{t.loading}</p> : status === 'error' ? <div className="card"><ErrorMessage message={error} /><button onClick={() => setAttempt((value) => value + 1)}>{t.retry}</button></div> : <Auth t={t} onAuthenticated={authenticated} />}</main>
     </>}
   </div>;
@@ -88,7 +88,7 @@ function LedgerShell({ webSession, setSession, preferences, onExpired }: { webSe
   const nav = [['accounts','wallet'],['categories','grid'],['transactions','receipt'],['overview','chart'],['more','more']] as const;
   const active = ['settings','recurring','fx'].includes(page) ? 'more' : page;
   return <div className="app-shell">
-    <header className="app-header"><a href="#accounts" className="brand" aria-label="RTTW"><span className="brand-symbol"><Icon name="arrow" size={19}/></span><span>rttw<span className="brand-period">.</span></span></a><div className="space-selector"><select aria-label={t.household} value={householdId} disabled={working || ledger.busy} onChange={e=>setHouseholdId(e.target.value)}>{webSession.households.map(h=><option value={h.id} key={h.id}>{h.name}</option>)}</select><Icon name="down" size={12}/></div><a className="avatar" href="#more" aria-label={ui(preferences.language,'profile')}>{webSession.user.email.slice(0,1).toUpperCase()}</a></header>
+    <header className="app-header"><a href="#accounts" className="brand" aria-label="wealthy"><span className="brand-symbol"><Icon name="arrow" size={19}/></span><span>wealthy<span className="brand-period">.</span></span></a><div className="space-selector"><select aria-label={t.household} value={householdId} disabled={working || ledger.busy} onChange={e=>setHouseholdId(e.target.value)}>{webSession.households.map(h=><option value={h.id} key={h.id}>{h.name}</option>)}</select><Icon name="down" size={12}/></div><a className="avatar" href="#more" aria-label={ui(preferences.language,'profile')}>{webSession.user.email.slice(0,1).toUpperCase()}</a></header>
     
     <main id="main-content"><ErrorMessage message={error}/>{inviteToken&&<div className="notice"><p>{t.acceptInvite}</p><button className="primary" disabled={working} onClick={()=>void accept()}>{working?t.loading:t.acceptInvite}</button></div>}
       {!householdId?<section className="card"><h1>{t.createHousehold}</h1><p>{t.householdHint}</p><HouseholdCreator t={t} onCreated={householdsChanged}/></section>:ledger.loading?<div className="skeleton-page" role="status"><div/><div/><div/>{t.loading}</div>:<>
@@ -98,7 +98,7 @@ function LedgerShell({ webSession, setSession, preferences, onExpired }: { webSe
         {page==='accounts'&&<Accounts {...featureProps}/>}
         {page==='categories'&&<Categories {...featureProps}/>}
         {page==='transactions'&&<Transactions {...featureProps}/>}
-        {page==='overview'&&<Overview {...featureProps} scope={preferences.scope} onScope={preferences.setScope} enabledCurrencies={preferences.enabledCurrencies}/>}
+        {page==='overview'&&<Overview {...featureProps} scope={preferences.scope} onScope={preferences.setScope}/>}
         {page==='recurring'&&<Recurring {...featureProps}/>}
         {page==='fx'&&<Fx {...featureProps}/>}
         {page==='settings'&&<Settings {...featureProps} preferences={preferences} webSession={webSession} refresh={ledger.refresh} onHouseholdsChanged={householdsChanged}/>}
@@ -107,8 +107,8 @@ function LedgerShell({ webSession, setSession, preferences, onExpired }: { webSe
       </>}
     </main>
     {featureProps&&entry&&<TransactionEditor {...featureProps} existing={undefined} onClose={()=>setEntry(false)}/>}
-    {featureProps&&page!=='more'&&page!=='settings'&&<button className="floating-add" disabled={!featureProps.snapshot.accounts.some(a=>!a.deletedAt&&!a.isArchived)} onClick={()=>setEntry(true)} aria-label={t.newTransaction}><Icon name="plus" size={25}/><span>{ui(preferences.language,'add')}</span></button>}
-    <nav className="bottom-nav" aria-label="RTTW">{nav.map(([value,icon])=><a key={value} href={`#${value}`} className={active===value?'current':''} aria-current={active===value?'page':undefined}><span className="nav-icon"><Icon name={icon} size={22}/></span><span>{value==='more'?ui(preferences.language,'more'):value==='overview'?ui(preferences.language,'analytics'):t[value]}</span></a>)}</nav>
-    <div className="desktop-note">RTTW / MIDNIGHT<br/><span>YOUR MONEY. A LITTLE CLEARER.</span></div>
+    {featureProps&&page!=='more'&&page!=='settings'&&<button className="floating-add" disabled={!featureProps.snapshot.accounts.some(a=>!a.deletedAt)} onClick={()=>setEntry(true)} aria-label={t.newTransaction}><Icon name="plus" size={25}/><span>{ui(preferences.language,'add')}</span></button>}
+    <nav className="bottom-nav" aria-label="wealthy">{nav.map(([value,icon])=><a key={value} href={`#${value}`} className={active===value?'current':''} aria-current={active===value?'page':undefined}><span className="nav-icon"><Icon name={icon} size={22}/></span><span>{value==='more'?ui(preferences.language,'more'):value==='overview'?ui(preferences.language,'analytics'):t[value]}</span></a>)}</nav>
+    <div className="desktop-note">wealthy<br/><span>YOUR MONEY. A LITTLE CLEARER.</span></div>
   </div>;
 }

@@ -64,6 +64,8 @@ export const recurringSchema = z.object({
 const revision = z.number().int().nonnegative().nullable();
 export const commandSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('account.save'), account: accountSchema, expectedRevision: revision.optional() }).strict(),
+  z.object({ type: z.literal('account.delete'), id: idSchema, expectedRevision: revision, asOf: dateSchema, expectedBalances: z.array(moneySchema).min(1).max(32), destinationAccountId: idSchema.nullable() }).strict(),
+  z.object({ type: z.literal('category.delete'), id: idSchema, expectedRevision: revision }).strict(),
   z.object({ type: z.literal('category.save'), category: categorySchema, expectedRevision: revision.optional() }).strict(),
   z.object({ type: z.literal('transaction.save'), transaction: transactionSchema, splits: z.array(splitSchema).max(500), expectedRevision: revision.optional() }).strict(),
   z.object({ type: z.literal('transfer.create'), debit: transactionSchema, credit: transactionSchema, link: transferSchema, fee: transactionSchema.optional() }).strict(),

@@ -27,10 +27,15 @@ describe('ledger report arithmetic', () => {
     expect(cashFlow(ledger, 'household', '2026-10', '2026-10-14').totals).toEqual([{ currency: 'USD', income: 2000n, expense: 1000n }]);
     expect(isActual(transaction('review', { status: 'review' }), '2026-10-14')).toBe(false);
   });
-  it('scopes by account ownership and excludes archived accounts from dashboards', () => {
-    const ledger = snapshot({ accounts: [account('a'), account('b', { ownerMemberId: 'other' }), account('shared', { ownershipScope: 'shared', ownerMemberId: null }), account('archived', { isArchived: true })], transactions: [transaction('different-member', { memberId: 'other' })] });
+  it('scopes by ownership and excludes deleted accounts from balances but preserves historical cash flow', () => {
+    const ledger = snapshot({ accounts: [account('a'), account('b', { ownerMemberId: 'other' }), account('shared', { ownershipScope: 'shared', ownerMemberId: null }), account('deleted', { deletedAt: '2026-10-14T00:00:00Z' })], transactions: [transaction('different-member', { memberId: 'other' }), transaction('historical', { accountId: 'deleted' })] });
     expect(balances(ledger, 'personal', '2026-10-14')).toEqual([{ currency: 'USD', amountMinor: '9000' }]);
     expect(balances(ledger, 'household', '2026-10-14')).toEqual([{ currency: 'USD', amountMinor: '29000' }]);
+    expect(cashFlow(ledger, 'household', '2026-10', '2026-10-14').totals).toEqual([{ currency: 'USD', income: 0n, expense: 2000n }]);
+  });
+  it('makes legacy archived accounts available as ordinary accounts', () => {
+    const ledger = snapshot({ accounts: [account('legacy', { isArchived: true })] });
+    expect(balances(ledger, 'household', '2026-10-14')).toEqual([{ currency: 'USD', amountMinor: '10000' }]);
   });
   it('never mixes original or reporting currencies without explicit conversions', () => {
     const ledger = snapshot({ transactions: [transaction('usd'), transaction('eur', { originalAmount: { amountMinor: '-2000', currency: 'EUR' }, reportingAmount: { amountMinor: '-1800', currency: 'EUR' } })] });

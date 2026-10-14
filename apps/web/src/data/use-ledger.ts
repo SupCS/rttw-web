@@ -6,6 +6,8 @@ import type { Text } from '../i18n';
 export function errorText(error: unknown, t: Text): string {
   if (!(error instanceof ApiError)) return t.requestError;
   if (error.code === 'revision_conflict' || error.code === 'conflict') return t.conflictError;
+  if (error.code === 'balance_changed') return t.balanceChanged;
+  if (error.code === 'account_deleted') return t.deletedAccountHistory;
   if (error.code === 'invalid_credentials' || error.code === 'invalid_session') return t.authError;
   if (error.code === 'email_in_use') return t.emailInUse;
   if (error.code === 'household_forbidden') return t.accessError;
@@ -16,7 +18,6 @@ export function errorText(error: unknown, t: Text): string {
   if (error.code === 'invalid_transfer' || error.code === 'account_currency_not_found') return t.transferError;
   if (error.code === 'currency_has_transactions') return t.currencyHistoryError;
   if (error.code === 'currency_has_recurring_payments') return t.recurringCurrencyError;
-  if (error.code === 'account_archived') return t.recurringAccountUnavailable;
   if (error.code === 'already_member') return t.alreadyMember;
   return t.requestError;
 }

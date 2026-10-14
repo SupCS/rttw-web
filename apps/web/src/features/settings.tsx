@@ -46,6 +46,6 @@ export function Settings({ preferences, webSession, refresh, onHouseholdsChanged
     {snapshot.member.role === 'owner' && <form onSubmit={(event) => void invite(event)}><h3>{t.invite}</h3><Field label={t.email}><input name="email" type="email" required maxLength={254} /></Field><button disabled={working}>{working ? t.saving : t.invite}</button></form>}
     {link && <><Field label={t.invitationLink}><input readOnly value={link} onFocus={(event) => event.target.select()} /></Field><p className="hint">{t.invitationHint}</p><button onClick={() => { void navigator.clipboard?.writeText(link).then(() => setCopied(true)).catch(() => {}); }}>{copied ? t.copied : t.copyLink}</button></>}
   </section><ErrorMessage message={error} /><div className="settings-data"><Backup {...props} refresh={refresh}/></div>
-  <section className="card settings-family settings-data"><h2>{t.createHousehold}</h2><HouseholdCreator t={t} onCreated={onHouseholdsChanged} /></section>
+  <section className="card settings-family"><h2>{t.createHousehold}</h2><HouseholdCreator t={t} onCreated={onHouseholdsChanged} /></section>
   </div>;
 }

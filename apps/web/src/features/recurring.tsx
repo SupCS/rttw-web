@@ -26,7 +26,7 @@ export function Recurring(props: FeatureProps) {
   const [error, setError] = useState('');
   const [message, setMessage] = useState('');
   const rules = snapshot.recurringRules.filter((item) => !item.deletedAt).sort((a, b) => Number(b.isActive) - Number(a.isActive) || (nextOccurrence(a, today()) ?? '9999').localeCompare(nextOccurrence(b, today()) ?? '9999'));
-  const availableAccounts = snapshot.accounts.filter((item) => !item.deletedAt && !item.isArchived);
+  const availableAccounts = snapshot.accounts.filter((item) => !item.deletedAt);
   const upcoming = buildUpcomingItems(rules.filter((rule) => {
     const payment = getRecurringPayment(rule, snapshot.transactions, snapshot.splits);
     return payment && availableAccounts.some((account) => account.id === payment.accountId);
@@ -51,7 +51,7 @@ export function Recurring(props: FeatureProps) {
       const account = snapshot.accounts.find((item) => item.id === payment?.accountId);
       const category = snapshot.categories.find((item) => item.id === payment?.categoryId);
       const next = nextOccurrence(rule, today());
-      const unavailable = !account || account.isArchived || account.deletedAt;
+      const unavailable = !account || account.deletedAt;
       return <article className="card recurring-payment-card" key={rule.id}>
         <div className="section-heading"><div className="recurring-payment-name">{category && <CategoryBadge category={category} />}<div><h2>{payment?.description || category?.names[language] || (payment ? t[payment.transactionType] : t.recurringPayments)}</h2><p className="hint">{payment ? t[payment.transactionType] : ''} · {account?.name}</p></div></div><span className="status">{!rule.isActive ? t.paused : !next ? t.paymentCompleted : t.active}</span></div>
         {payment && <div className={`recurring-payment-amount ${payment.transactionType === 'income' ? 'positive' : 'negative'}`}><Amount value={{ ...payment.originalAmount, amountMinor: (BigInt(payment.originalAmount.amountMinor) < 0n ? -BigInt(payment.originalAmount.amountMinor) : BigInt(payment.originalAmount.amountMinor)).toString() }} locale={locale} display={moneyDisplay} /></div>}
@@ -71,7 +71,7 @@ function PaymentEditor({ existing, onClose, ...props }: FeatureProps & { existin
   const { snapshot, t, language, locale, moneyDisplay, command, busy } = props;
   const initial = existing ? getRecurringPayment(existing, snapshot.transactions, snapshot.splits) : null;
   const [fields] = useState(() => audit(snapshot.member.id, existing));
-  const accounts = snapshot.accounts.filter((item) => !item.deletedAt && (!item.isArchived || item.id === initial?.accountId));
+  const accounts = snapshot.accounts.filter((item) => !item.deletedAt);
   const initialAccount = accounts.find((item) => item.id === initial?.accountId) ?? accounts[0];
   const [name, setName] = useState(initial?.description ?? '');
   const [type, setType] = useState<'expense' | 'income'>(initial?.transactionType ?? 'expense');
@@ -94,7 +94,7 @@ function PaymentEditor({ existing, onClose, ...props }: FeatureProps & { existin
   const [error, setError] = useState('');
   const account = accounts.find((item) => item.id === accountId);
   const codes = account?.openingBalances.map((value) => value.currency) ?? [currency];
-  const applicable = snapshot.categories.filter((item) => !item.deletedAt && (!item.isArchived || item.id === initial?.categoryId || initial?.splits.some((value) => value.categoryId === item.id)) && (item.applicability === type || item.applicability === 'both'));
+  const applicable = snapshot.categories.filter((item) => !item.deletedAt && (item.applicability === type || item.applicability === 'both'));
   const frequency: RecurringRule['frequency'] = preset === 'yearly' || preset === 'monthly' ? 'monthly' : preset === 'weekly' ? 'weekly' : unit === 'months' ? 'monthly' : unit === 'weeks' ? 'weekly' : 'interval_days';
   const interval = preset === 'yearly' ? 12 : preset === 'custom' ? Number(customInterval) : 1;
   const startsOn = existing && preserveAnchor && firstDate === initialNext && frequency === existing.frequency && interval === existing.interval ? existing.startsOn : firstDate;
@@ -139,7 +139,7 @@ function PaymentEditor({ existing, onClose, ...props }: FeatureProps & { existin
         <Field label={t.paymentName}><input required maxLength={500} autoFocus placeholder={t.paymentNameExample} value={name} onChange={(event) => setName(event.target.value)} /></Field>
         <div className="segmented-control" role="group" aria-label={t.type}>{(['expense', 'income'] as const).map((value) => <button type="button" key={value} aria-pressed={type === value} onClick={() => { if (type === value) return; setType(value); setCategoryId(''); setSplit(false); setSplits([]); setConfirmPast(false); }}>{t[value]}</button>)}</div>
         <div className="form-grid"><Field label={t.amount}><input inputMode="decimal" required placeholder="0.00" value={amount} onChange={(event) => { setAmount(event.target.value); setConfirmPast(false); }} /></Field><Field label={t.currency}><CurrencySelect value={currency} codes={codes} onChange={(value) => { setCurrency(value); setConfirmPast(false); }} /></Field></div>
-        <Field label={t.account}><select required value={accountId} onChange={(event) => { const target = accounts.find((item) => item.id === event.target.value); setAccountId(event.target.value); setConfirmPast(false); if (target && !target.openingBalances.some((value) => value.currency === currency)) setCurrency(target.primaryCurrency); }}><option value="">—</option>{accounts.map((item) => <option key={item.id} value={item.id}>{item.name}{item.isArchived ? ` · ${t.archived}` : ''}</option>)}</select></Field>
+        <Field label={t.account}><select required value={accountId} onChange={(event) => { const target = accounts.find((item) => item.id === event.target.value); setAccountId(event.target.value); setConfirmPast(false); if (target && !target.openingBalances.some((value) => value.currency === currency)) setCurrency(target.primaryCurrency); }}><option value="">—</option>{accounts.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></Field>
         {!split && <Field label={t.category}><select value={categoryId} onChange={(event) => setCategoryId(event.target.value)}><option value="">{t.noCategory}</option>{applicable.map((item) => <option key={item.id} value={item.id}>{categoryLabel(item, snapshot.categories, language)}</option>)}</select></Field>}
       </fieldset>
       <fieldset disabled={busy}><legend>{t.paymentSchedule}</legend>

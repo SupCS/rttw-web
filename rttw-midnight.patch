@@ -1,0 +1,931 @@
+diff --git a/TODO.md b/TODO.md
+index 00c154314ce3d23cbd3eb6adf89db73f65c347c1..c0cda3302eba7ccfb2515b4a62ddf82c4cb57832 100644
+--- a/TODO.md
++++ b/TODO.md
+@@ -4,6 +4,8 @@
+ 
+ ## Готово
+ 
++- [x] Мобильный редизайн Midnight: новая навигация, карточки валют, нижние панели, цифровая клавиатура, переработанные экраны. Дизайн подключён к существующему API; демоданные и Sites-конфигурация исключены.
++
+ - [x] Мультивалютные счета, начальные остатки, личные/общие счета и архив.
+ - [x] Категории/подкатегории, разные цвета по умолчанию, сетка SVG-иконок с живым цветом, архив и объединение.
+ - [x] Операции и splits, переводы/комиссии, редактирование/копирование/удаление/отмена, поиск и фильтры.
+diff --git a/apps/web/index.html b/apps/web/index.html
+index 1110219bdd486e700b5e9c894121fb7df8048fd6..dedd7c7d4239bed8f12cab6bec0496ca4968fa4a 100644
+--- a/apps/web/index.html
++++ b/apps/web/index.html
+@@ -2,11 +2,12 @@
+ <html lang="ru">
+   <head>
+     <meta charset="UTF-8" />
+-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+-    <meta name="theme-color" content="#087F5B" />
++    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
++    <meta name="theme-color" content="#101619" />
+     <meta name="description" content="Road To The Wealth — personal and household finance in your browser." />
+     <link rel="icon" type="image/svg+xml" href="/icon.svg" />
+-    <title>Road To The Wealth</title>
++    <link rel="manifest" href="/manifest.webmanifest" />
++    <title>RTTW · Midnight</title>
+   </head>
+   <body>
+     <div id="root"></div>
+diff --git a/apps/web/public/icon.svg b/apps/web/public/icon.svg
+index 739cb519f944846903b8dce81fdb2b3770992150..95751da1f985798beede4a3712450a63ad51b40d 100644
+--- a/apps/web/public/icon.svg
++++ b/apps/web/public/icon.svg
+@@ -1 +1 @@
+-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 192 192"><rect width="192" height="192" rx="44" fill="#087F5B"/><path d="M42 137V55h25v53l29-29 29 17 25-40v43l-23 30-28-18-32 31Z" fill="#FFFFFF"/></svg>
++<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 192 192"><rect width="192" height="192" rx="48" fill="#a6e7cc"/><path d="M57 135 135 57M57 57h78v78" fill="none" stroke="#132b22" stroke-width="13" stroke-linecap="round" stroke-linejoin="round"/></svg>
+diff --git a/apps/web/public/manifest.webmanifest b/apps/web/public/manifest.webmanifest
+new file mode 100644
+index 0000000000000000000000000000000000000000..50ab1411dc891f883b19fe5ed306faca277c4476
+--- /dev/null
++++ b/apps/web/public/manifest.webmanifest
+@@ -0,0 +1 @@
++{"name":"RTTW · Road To The Wealth","short_name":"RTTW","start_url":"/#accounts","display":"standalone","background_color":"#101619","theme_color":"#101619","icons":[{"src":"/icon.svg","sizes":"any","type":"image/svg+xml","purpose":"any maskable"}]}
+diff --git a/apps/web/src/App.tsx b/apps/web/src/App.tsx
+index 2f1a75fa1905df5b5eb8494718ece9b2163c1d76..7fda22d86ed2e0ec79b3081c71e90d03f513958e 100644
+--- a/apps/web/src/App.tsx
++++ b/apps/web/src/App.tsx
+@@ -7,6 +7,9 @@ import { usePreferences, type Preferences } from './preferences';
+ import { themes } from './themes';
+ import { themeStyle } from './theme-style';
+ import { ErrorMessage, Field } from './components/shared';
++import { Icon, ui } from './components/design';
++import { TransactionEditor } from './features/transaction-editor';
++import { More } from './features/more';
+ import { Accounts } from './features/accounts';
+ import { Categories } from './features/categories';
+ import { Transactions } from './features/transactions';
+@@ -17,10 +20,10 @@ import { Settings } from './features/settings';
+ import { Auth } from './features/auth';
+ import { HouseholdCreator } from './features/household';
+ 
+-const pages = ['overview', 'transactions', 'accounts', 'categories', 'recurring', 'fx', 'settings'] as const;
++const pages = ['overview', 'transactions', 'accounts', 'categories', 'recurring', 'fx', 'settings', 'more'] as const;
+ type Page = typeof pages[number];
+-const icons: Record<Page, string> = { overview: '◈', transactions: '⇄', accounts: '▤', categories: '▦', recurring: '↻', fx: '⇅', settings: '⚙' };
+-function currentPage(): Page { const value = location.hash.slice(1).split('?')[0]; return pages.includes(value as Page) ? value as Page : 'overview'; }
++const icons: Record<Page, string> = { overview: '◈', transactions: '⇄', accounts: '▤', categories: '▦', recurring: '↻', fx: '⇅', settings: 'settings', more: 'more' };
++function currentPage(): Page { const value = location.hash.slice(1).split('?')[0]; return pages.includes(value as Page) ? value as Page : 'accounts'; }
+ 
+ export function App() {
+   const preferences = usePreferences(); const t = dictionaries[preferences.language];
+@@ -32,7 +35,7 @@ export function App() {
+   useEffect(() => {
+     document.documentElement.lang = preferences.language;
+     document.documentElement.style.fontSize = `${preferences.fontSize === 'large' ? 18.4 : preferences.fontSize === 'extraLarge' ? 20.8 : 16}px`;
+-    document.querySelector('meta[name="theme-color"]')?.setAttribute('content', theme.primary);
++    document.querySelector('meta[name="theme-color"]')?.setAttribute('content', theme.background);
+   }, [preferences.language, preferences.fontSize, theme.primary]);
+   useEffect(() => {
+     let alive = true; setStatus('loading'); setError('');
+@@ -53,7 +56,7 @@ export function App() {
+   const expired = () => { setSession(null); setStatus('loading'); setAttempt((value) => value + 1); };
+   return <div className="app" style={themeStyle(theme) as CSSProperties}>
+     {status === 'ready' && webSession ? <LedgerShell webSession={webSession} setSession={setSession} preferences={preferences} onExpired={expired} /> : <>
+-      <header className="welcome-header"><a className="brand" href="#overview"><span aria-hidden="true">↗</span> RTTW</a><Field label={t.language}><select value={preferences.language} onChange={(event) => preferences.setLanguage(event.target.value as Language)}>{Object.entries(languages).map(([code, value]) => <option key={code} value={code}>{value.flag} {value.label}</option>)}</select></Field></header>
++      <header className="welcome-header"><a className="brand" href="#overview"><span className="brand-symbol"><Icon name="arrow"/></span> RTTW</a><Field label={t.language}><select value={preferences.language} onChange={(event) => preferences.setLanguage(event.target.value as Language)}>{Object.entries(languages).map(([code, value]) => <option key={code} value={code}>{value.flag} {value.label}</option>)}</select></Field></header>
+       <main className="welcome-main">{status === 'loading' ? <p className="empty" role="status">{t.loading}</p> : status === 'error' ? <div className="card"><ErrorMessage message={error} /><button onClick={() => setAttempt((value) => value + 1)}>{t.retry}</button></div> : <Auth t={t} onAuthenticated={authenticated} />}</main>
+     </>}
+   </div>;
+@@ -63,10 +66,11 @@ function LedgerShell({ webSession, setSession, preferences, onExpired }: { webSe
+   const t = dictionaries[preferences.language];
+   const [householdId, setHouseholdId] = useState(webSession.households[0]?.id ?? '');
+   const [page, setPage] = useState<Page>(currentPage);
++  const [entry, setEntry] = useState(false);
+   const [error, setError] = useState(''); const [working, setWorking] = useState(false);
+   const [inviteToken, setInviteToken] = useState(() => new URLSearchParams(location.search).get('invite') ?? '');
+   const ledger = useLedger(householdId, webSession.user.id, onExpired);
+-  useEffect(() => { const route = () => setPage(currentPage()); addEventListener('hashchange', route); return () => removeEventListener('hashchange', route); }, []);
++  useEffect(() => { const route = () => { setPage(currentPage()); window.scrollTo({top:0}); }; addEventListener('hashchange', route); return () => removeEventListener('hashchange', route); }, []);
+   async function householdsChanged(household?: WebHousehold) {
+     const result = await session(); setSession(result);
+     if (household) setHouseholdId(household.id);
+@@ -81,21 +85,30 @@ function LedgerShell({ webSession, setSession, preferences, onExpired }: { webSe
+     catch (failure) { setError(errorText(failure, t)); } finally { setWorking(false); }
+   }
+   const featureProps = ledger.snapshot ? { snapshot: ledger.snapshot, t, language: preferences.language, locale: localeTags[preferences.language], busy: ledger.busy, command: ledger.command, moneyDisplay: preferences.moneyDisplay } : null;
+-  return <div className="app-shell"><aside className="sidebar"><a className="brand" href="#overview"><span aria-hidden="true">↗</span><div>RTTW<small>Road To The Wealth</small></div></a><nav aria-label="RTTW">{pages.map((value) => <a key={value} href={`#${value}`} className={page === value ? 'current' : ''} aria-current={page === value ? 'page' : undefined}><span aria-hidden="true">{icons[value]}</span>{t[value]}</a>)}</nav><div className="sidebar-footer"><p className="muted">{webSession.user.email}</p><button disabled={working || ledger.busy} onClick={() => void signOut()}>{t.logout}</button><small>{t.networkRequired}</small></div></aside>
+-    <div className="workspace"><header className="workspace-header"><Field label={t.household}><select value={householdId} disabled={working || ledger.busy} onChange={(event) => setHouseholdId(event.target.value)}>{webSession.households.map((household) => <option value={household.id} key={household.id}>{household.name}</option>)}</select></Field><button disabled={ledger.loading || ledger.busy} onClick={() => void ledger.refresh()}>{t.refresh}</button></header><main id="main-content">
+-      <ErrorMessage message={error} />{inviteToken && <div className="notice"><p>{t.acceptInvite}</p><button className="primary" disabled={working} onClick={() => void accept()}>{working ? t.loading : t.acceptInvite}</button></div>}
+-      {!householdId ? <section className="card"><h1>{t.createHousehold}</h1><p>{t.householdHint}</p><HouseholdCreator t={t} onCreated={householdsChanged} /></section> : ledger.loading ? <p className="empty" role="status">{t.loading}</p> : <>
+-        {ledger.error && <div className="notice"><ErrorMessage message={errorText(ledger.error, t)} /><button onClick={() => void ledger.refresh()}>{t.retry}</button></div>}
+-        {featureProps && <div key={`${householdId}:${page}`} className="feature-page">
+-          {page === 'overview' && <Overview {...featureProps} scope={preferences.scope} onScope={preferences.setScope} enabledCurrencies={preferences.enabledCurrencies} />}
+-          {page === 'transactions' && <Transactions {...featureProps} />}
+-          {page === 'accounts' && <Accounts {...featureProps} />}
+-          {page === 'categories' && <Categories {...featureProps} />}
+-          {page === 'recurring' && <Recurring {...featureProps} />}
+-          {page === 'fx' && <Fx {...featureProps} />}
+-          {page === 'settings' && <Settings {...featureProps} preferences={preferences} webSession={webSession} refresh={ledger.refresh} onHouseholdsChanged={householdsChanged} />}
+-        </div>}
++  const nav = [['accounts','wallet'],['categories','grid'],['transactions','receipt'],['overview','chart'],['more','more']] as const;
++  const active = ['settings','recurring','fx'].includes(page) ? 'more' : page;
++  return <div className="app-shell">
++    <header className="app-header"><a href="#accounts" className="brand" aria-label="RTTW"><span className="brand-symbol"><Icon name="arrow" size={19}/></span><span>rttw<span className="brand-period">.</span></span></a><div className="space-selector"><select aria-label={t.household} value={householdId} disabled={working || ledger.busy} onChange={e=>setHouseholdId(e.target.value)}>{webSession.households.map(h=><option value={h.id} key={h.id}>{h.name}</option>)}</select><Icon name="down" size={12}/></div><a className="avatar" href="#more" aria-label={ui(preferences.language,'profile')}>{webSession.user.email.slice(0,1).toUpperCase()}</a></header>
++    
++    <main id="main-content"><ErrorMessage message={error}/>{inviteToken&&<div className="notice"><p>{t.acceptInvite}</p><button className="primary" disabled={working} onClick={()=>void accept()}>{working?t.loading:t.acceptInvite}</button></div>}
++      {!householdId?<section className="card"><h1>{t.createHousehold}</h1><p>{t.householdHint}</p><HouseholdCreator t={t} onCreated={householdsChanged}/></section>:ledger.loading?<div className="skeleton-page" role="status"><div/><div/><div/>{t.loading}</div>:<>
++      {ledger.error&&<div className="notice"><ErrorMessage message={errorText(ledger.error,t)}/><button onClick={()=>void ledger.refresh()}>{t.retry}</button></div>}
++      {featureProps&&<div key={`${householdId}:${page}`} className={`feature-page page-${page}`}>
++        {['settings','recurring','fx'].includes(page)&&<a className="back-link" href="#more"><Icon name="left" size={16}/>{ui(preferences.language,'more')}</a>}
++        {page==='accounts'&&<Accounts {...featureProps}/>}
++        {page==='categories'&&<Categories {...featureProps}/>}
++        {page==='transactions'&&<Transactions {...featureProps}/>}
++        {page==='overview'&&<Overview {...featureProps} scope={preferences.scope} onScope={preferences.setScope} enabledCurrencies={preferences.enabledCurrencies}/>}
++        {page==='recurring'&&<Recurring {...featureProps}/>}
++        {page==='fx'&&<Fx {...featureProps}/>}
++        {page==='settings'&&<Settings {...featureProps} preferences={preferences} webSession={webSession} refresh={ledger.refresh} onHouseholdsChanged={householdsChanged}/>}
++        {page==='more'&&<More {...featureProps} webSession={webSession} onLogout={()=>void signOut()} onRefresh={()=>void ledger.refresh()}/>}
++      </div>}
+       </>}
+-    </main></div>
++    </main>
++    {featureProps&&entry&&<TransactionEditor {...featureProps} existing={undefined} onClose={()=>setEntry(false)}/>}
++    {featureProps&&page!=='more'&&page!=='settings'&&<button className="floating-add" disabled={!featureProps.snapshot.accounts.some(a=>!a.deletedAt&&!a.isArchived)} onClick={()=>setEntry(true)} aria-label={t.newTransaction}><Icon name="plus" size={25}/><span>{ui(preferences.language,'add')}</span></button>}
++    <nav className="bottom-nav" aria-label="RTTW">{nav.map(([value,icon])=><a key={value} href={`#${value}`} className={active===value?'current':''} aria-current={active===value?'page':undefined}><span className="nav-icon"><Icon name={icon} size={22}/></span><span>{value==='more'?ui(preferences.language,'more'):value==='overview'?ui(preferences.language,'analytics'):t[value]}</span></a>)}</nav>
++    <div className="desktop-note">RTTW / MIDNIGHT<br/><span>YOUR MONEY. A LITTLE CLEARER.</span></div>
+   </div>;
+ }
+diff --git a/apps/web/src/components/design.tsx b/apps/web/src/components/design.tsx
+new file mode 100644
+index 0000000000000000000000000000000000000000..91e2d062c484357f9ed3ce9c7eb6184f1c4cf112
+--- /dev/null
++++ b/apps/web/src/components/design.tsx
+@@ -0,0 +1,31 @@
++import type { CSSProperties } from 'react';
++import type { Language } from '../i18n';
++const paths: Record<string,string> = {
++ wallet:'M3 7V5a2 2 0 0 1 2-2h13v4M3 7h16a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7Zm12 5h6v5h-6v-5Z',
++ card:'M3 7h18M3 11h18M6 16h4M5 3h14a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2Z',
++ grid:'M3 3h7v7H3zM14 3h7v7h-7zM3 14h7v7H3zM14 14h7v7h-7z',
++ receipt:'M5 3l3 2 4-2 4 2 3-2v18l-3-2-4 2-4-2-3 2V3Zm3 6h8M8 13h8M8 17h4',
++ chart:'M4 19V5M4 19h16M8 15v-4M13 15V7M18 15V3',
++ more:'M5 5h.01M12 5h.01M19 5h.01M5 12h.01M12 12h.01M19 12h.01M5 19h.01M12 19h.01M19 19h.01',
++ plus:'M12 5v14M5 12h14', close:'M6 6l12 12M18 6 6 18', right:'m9 5 7 7-7 7', left:'m15 5-7 7 7 7', down:'m6 9 6 6 6-6', up:'m7 14 5-5 5 5',
++ arrow:'M7 17 17 7M7 7h10v10', income:'M17 7 7 17M7 7v10h10', transfer:'M4 7h15l-4-4M20 17H5l4 4',
++ eye:'M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12Zm10-3a3 3 0 1 0 0 6 3 3 0 0 0 0-6Z', hidden:'m3 3 18 18M10 5c7-1 12 7 12 7a20 20 0 0 1-4 4M6 6a18 18 0 0 0-4 6s4 7 10 7a13 13 0 0 0 5-1',
++ repeat:'M4 8a8 8 0 0 1 14-3l3 3M21 3v5h-5M20 16a8 8 0 0 1-14 3l-3-3M3 21v-5h5',
++ globe:'M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0ZM3 12h18M12 3c5 5 5 13 0 18-5-5-5-13 0-18Z',
++ users:'M9 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8Zm-7 9v-2a5 5 0 0 1 5-5h4a5 5 0 0 1 5 5v2M17 4a4 4 0 0 1 0 8M19 15a5 5 0 0 1 3 4v2',
++ settings:'m10 3-1 3-3 1-3-1-1 3 3 2v3l-2 2 2 3 3-1 3 2 1 2 4-1v-3l3-2 3 1 1-4-3-1-1-3 1-2-3-2-2 2-3-1V3Zm2 6a3 3 0 1 0 0 6 3 3 0 0 0 0-6Z',
++ download:'M12 3v12m-5-5 5 5 5-5M4 16v5h16v-5', logout:'M9 3H3v18h6M10 12h11m-5-5 5 5-5 5',
++ search:'M10 3a7 7 0 1 0 0 14 7 7 0 0 0 0-14Zm5 12 6 6', filter:'M3 5h18M6 12h12M9 19h6',
++ calendar:'M4 5h16v16H4V5Zm0 5h16M8 2v6M16 2v6', edit:'m15 4 5 5M4 20l1-6L17 2l5 5-12 12-6 1Z',
++ sparkle:'m12 3 2.5 6.5L21 12l-6.5 2.5L12 21l-2.5-6.5L3 12l6.5-2.5L12 3Z', lock:'M6 10h12v11H6V10Zm2 0V6a4 4 0 0 1 8 0v4',
++ check:'m5 12 4 4L19 6', info:'M12 8h.01M12 12v5M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z', refresh:'M20 7V2m0 5h-5M20 7a9 9 0 1 0 1 8',
++ money:'M3 5h18v14H3zM12 9a3 3 0 1 0 0 6 3 3 0 0 0 0-6Z',
++ backspace:'m9 5-7 7 7 7h12V5H9Zm3 4 6 6m0-6-6 6', sun:'M12 8a4 4 0 1 0 0 8 4 4 0 0 0 0-8ZM12 2v2M12 20v2M2 12h2M20 12h2M5 5l1 1M18 18l1 1M5 19l1-1M18 6l1-1',
++};
++export function Icon({name,size=22,style}:{name:string;size?:number;style?:CSSProperties}){return <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={name==='more'?3.5:1.65} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" style={style}><path d={paths[name]??paths.wallet}/></svg>}
++const words={
++ more:['More','Більше','Ещё'], analytics:['Analytics','Аналітика','Аналитика'], space:['Your money, in focus','Ваші фінанси під контролем','Ваши финансы под контролем'], total:['Total balance','Загальний баланс','Общий баланс'], allAccounts:['All accounts','Усі рахунки','Все счета'], available:['Every currency. One place.','Усі валюти. В одному місці.','Все валюты. В одном месте.'], savings:['Savings','Заощадження','Накопления'], everyday:['Everyday accounts','Щоденні рахунки','На каждый день'], archive:['Archive','Архів','Архив'], add:['Add','Додати','Добавить'], details:['Details','Деталі','Подробнее'], now:['Today','Сьогодні','Сегодня'], activity:['Latest activity','Остання активність','Последние операции'], seeAll:['See all','Усі','Все'], expense:['Expenses','Витрати','Расходы'], income:['Income','Доходи','Доходы'], month:['This month','Цього місяця','В этом месяце'], demo:['Demo · local data','Демо · локальні дані','Демо · локальные данные'], profile:['Your space','Ваш простір','Ваше пространство'], welcome:['A little clarity.\nEvery day.','Трохи ясності.\nЩодня.','Больше ясности.\nКаждый день.'], sub:['Accounts, currencies and everyday life. Together.','Рахунки, валюти та щоденне життя. Разом.','Счета, валюты и повседневная жизнь. Вместе.'], advanced:['More options','Більше параметрів','Дополнительно'], keypad:['Keypad','Клавіатура','Клавиатура'], balanceDate:['Balance as of','Баланс на','Баланс на'], demoNote:['This is an interactive design preview. Data and rates are illustrative and saved only in this browser.','Інтерактивний дизайн. Дані й курси демонстраційні та зберігаються лише в цьому браузері.','Интерактивный дизайн. Данные и курсы демонстрационные и сохраняются только в этом браузере.'], serverOnly:['Available when connected to your RTTW server.','Доступно після підключення до сервера RTTW.','Доступно при подключении к серверу RTTW.'], planned:['Coming up','Незабаром','Скоро'], demoAuth:['Preview sign-in','Переглянути вхід','Посмотреть экран входа'], backDemo:['Back to demo','Повернутися до демо','Вернуться в демо'], privacy:['Hide amounts','Приховати суми','Скрыть суммы'], own:['Personal','Особисте','Личное'], shared:['Together','Разом','Общее'], done:['Done','Готово','Готово'], configuration:['Preferences','Налаштування','Параметры'], data:['Your data','Ваші дані','Ваши данные'], noActual:['No transactions in this period','У цьому періоді немає операцій','За этот период операций нет'], upcoming:['Scheduled payments','Заплановані платежі','Платежи по расписанию'], monthTotal:['Monthly activity','Активність за місяць','Движение за месяц'], fxDemo:['Illustrative rates · not live quotes','Демонстраційні курси · не поточні','Демонстрационные курсы · не текущие'],
++} as const;
++export function ui(language:Language,key:keyof typeof words){return words[key][language==='en'?0:language==='uk'?1:2]}
++export function Heading({title,subtitle,action}:{title:string;subtitle?:string;action?:React.ReactNode}){return <div className="page-heading"><div>{subtitle&&<p className="eyebrow">{subtitle}</p>}<h1>{title}</h1></div>{action}</div>}
++export function MonthPicker({value,onChange,locale}:{value:string;onChange:(s:string)=>void;locale:string}){const shift=(n:number)=>{const d=new Date(`${value}-15T12:00:00`);d.setMonth(d.getMonth()+n);onChange(`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`)};return <div className="month-picker"><button className="icon-button" aria-label="Previous month" onClick={()=>shift(-1)}><Icon name="left" size={18}/></button><label><span>{new Intl.DateTimeFormat(locale,{month:'long',year:'numeric'}).format(new Date(`${value}-15T12:00:00`))}</span><Icon name="down" size={14}/><input type="month" aria-label="Month" value={value} onChange={e=>e.target.value&&onChange(e.target.value)}/></label><button className="icon-button" aria-label="Next month" onClick={()=>shift(1)}><Icon name="right" size={18}/></button></div>}
+diff --git a/apps/web/src/components/shared.tsx b/apps/web/src/components/shared.tsx
+index 0ebb7479c3461c9921f9347d4a60143196c5ee7a..0ff52ca1cb8976902b358dc8109672bd8b17099f 100644
+--- a/apps/web/src/components/shared.tsx
++++ b/apps/web/src/components/shared.tsx
+@@ -24,7 +24,7 @@ export function majorInput(value: WireMoney): string {
+ export function signedMajorInput(value: WireMoney): string { return `${BigInt(value.amountMinor) < 0n ? '-' : ''}${majorInput(value)}`; }
+ export function Dialog({ title, onClose, children, t, busy = false }: { title: string; onClose: () => void; children: ReactNode; t: Text; busy?: boolean }) {
+   const ref = useRef<HTMLDialogElement>(null);
+-  useEffect(() => { const target = ref.current; target?.showModal(); return () => { target?.close(); }; }, []);
++  useEffect(() => { const target = ref.current; const previous=document.body.style.overflow; document.body.style.overflow='hidden'; target?.showModal(); return () => { target?.close(); document.body.style.overflow=previous; }; }, []);
+   return <dialog ref={ref} onCancel={(event) => { if (busy) event.preventDefault(); else onClose(); }} aria-labelledby="dialog-title"><div className="dialog-header"><h2 id="dialog-title">{title}</h2><button type="button" className="icon-button" onClick={onClose} disabled={busy} aria-label={t.close}>×</button></div>{children}</dialog>;
+ }
+ export function ErrorMessage({ message }: { message: string }) { return message ? <p className="error" role="alert">{message}</p> : null; }
+diff --git a/apps/web/src/features/accounts.tsx b/apps/web/src/features/accounts.tsx
+index c2757eb66599ab6c8a43aca28ea30f642aa9eae1..730bd9a3962017a9179eaef9cf6505eb5a5512da 100644
+--- a/apps/web/src/features/accounts.tsx
++++ b/apps/web/src/features/accounts.tsx
+@@ -1,9 +1,13 @@
+-import { useState, type FormEvent } from 'react';
++import { useEffect, useState, type FormEvent } from 'react';
+ import { parseMajorAmount, serializeMoney, type Account, type MoneyCurrencyCode } from '@rttw/domain';
+ import { accountBalances, audit } from '../data/derived';
+ import { errorText } from '../data/use-ledger';
+ import { today } from '../format';
+ import { Amount, CurrencySelect, Dialog, ErrorMessage, Field, SubmitButtons, currencies, signedMajorInput, text, type FeatureProps } from '../components/shared';
++import { Icon, ui, Heading } from '../components/design';
++import { rates, type FxRate } from '../data/api';
++import { convertBalance } from '../data/reporting';
++import { CategoryBadge } from './categories';
+ import { ConvertedBalance } from './overview-fx';
+ 
+ const accountTypes: Account['accountType'][] = ['cash', 'debit_card', 'credit_card', 'current', 'savings', 'deposit', 'investment', 'debt', 'e_wallet', 'custom'];
+@@ -12,18 +16,28 @@ export function Accounts(props: FeatureProps) {
+   const [editing, setEditing] = useState<Account | 'new' | null>(null);
+   const [archived, setArchived] = useState(false);
+   const accounts = snapshot.accounts.filter((item) => !item.deletedAt && item.isArchived === archived);
+-  return <>
+-    <div className="section-heading"><h1>{t.accounts}</h1><button className="primary" onClick={() => setEditing('new')}>{t.newAccount}</button></div>
+-    <label className="check"><input type="checkbox" checked={archived} onChange={(event) => setArchived(event.target.checked)} />{t.archived}</label>
+-    <div className="card-grid">{accounts.map((account) => <article className="card" key={account.id}>
+-      <div className="section-heading"><h2>{account.name}</h2><button onClick={() => setEditing(account)}>{t.edit}</button></div>
+-      <p className="muted">{t[account.accountType]} · {t[account.ownershipScope]} · {account.primaryCurrency}</p>
+-      <div className="balance-stack">{accountBalances(snapshot, account, today()).map((value) => <Amount key={value.currency} value={value} locale={locale} display={moneyDisplay} />)}</div>
+-      <ConvertedBalance values={accountBalances(snapshot, account, today())} currency={account.primaryCurrency} date={today()} locale={locale} display={moneyDisplay} t={t} />
+-      <a href={`#transactions?account=${encodeURIComponent(account.id)}`}>{t.transactions}</a>
+-    </article>)}</div>
+-    {!accounts.length && <p className="empty">{t.empty}</p>}
+-    {editing && <AccountEditor {...props} existing={editing === 'new' ? undefined : editing} onClose={() => setEditing(null)} />}
++  const [scope,setScope]=useState<'all'|'personal'|'shared'>('all');
++  const [hidden,setHidden]=useState(false);
++  const [currency,setCurrency]=useState(snapshot.household.baseCurrency);
++  const [fx,setFx]=useState<FxRate[]>([]);
++  const [selected,setSelected]=useState<Account|null>(null);
++  const shown=accounts.filter(a=>scope==='all'||a.ownershipScope===scope);
++  const totals=shown.flatMap(a=>accountBalances(snapshot,a,today()));
++  const currencyKey=[...new Set(totals.map(v=>v.currency).filter(c=>c!==currency))].sort().join(',');
++  useEffect(()=>{let alive=true;setFx([]);void Promise.allSettled(currencyKey.split(',').filter(Boolean).map(c=>rates(c as MoneyCurrencyCode,currency,today()))).then(values=>{if(alive)setFx(values.flatMap(v=>v.status==='fulfilled'?v.value.rates:[]))});return()=>{alive=false}},[currencyKey,currency]);
++  const total=convertBalance(totals,currency,fx);
++  const recent=snapshot.transactions.filter(t=>!t.deletedAt&&['confirmed','fx_pending'].includes(t.status)&&t.transactionDate<=today()&&shown.some(a=>a.id===t.accountId)).sort((a,b)=>b.transactionDate.localeCompare(a.transactionDate)||b.createdAt.localeCompare(a.createdAt)).slice(0,3);
++  const card=(account:Account,index:number)=>{const values=accountBalances(snapshot,account,today());return <article className={`account-card account-${account.accountType}`} key={account.id}><button className="account-card-head" onClick={()=>setSelected(account)}><span className={`tile-icon ${['blue','peach','lavender','mint'][index%4]}`}><Icon name={account.accountType==='cash'?'money':['savings','deposit','investment'].includes(account.accountType)?'sparkle':'card'}/></span><span><strong>{account.name}</strong><small>{t[account.ownershipScope]}<span className="middle-dot">·</span>{values.length>1?`${values.length} ${t.currencies.toLowerCase()}`:t[account.accountType]}</small></span><Icon name="right" size={17}/></button><div className={`account-currencies ${values.length===1?'single-currency':''}`}>{values.map(v=><div key={v.currency}><span className="currency-caption">{v.currency}</span><strong className={BigInt(v.amountMinor)<0n?'negative':''}>{hidden?'••••':<Amount value={v} locale={locale} display={moneyDisplay}/>}</strong></div>)}</div></article>};
++  return <><Heading title={t.accounts} subtitle={ui(props.language,'available')} action={<button className="icon-button outlined" aria-label={t.newAccount} onClick={()=>setEditing('new')}><Icon name="plus"/></button>}/>
++    <section className="balance-hero"><div className="balance-hero-top"><span>{ui(props.language,'total')}{archived?` · ${t.archived}`:''}</span><button className="icon-button" onClick={()=>setHidden(!hidden)} aria-label={ui(props.language,'privacy')} aria-pressed={hidden}><Icon name={hidden?'hidden':'eye'} size={19}/></button></div><div className="hero-amount">{hidden?'••••••':total?<Amount value={total} locale={locale} display={moneyDisplay}/>:<span>—</span>}</div><div className="balance-hero-bottom"><span><span className="live-dot"/>{t.asOf}: {new Intl.DateTimeFormat(locale,{day:'numeric',month:'short'}).format(new Date())}</span><div className="hero-currency"><CurrencySelect value={currency} onChange={setCurrency}/><Icon name="down" size={12}/></div></div>{!total&&totals.length>0&&<small>{t.fx_pending}</small>}</section>
++    <div className="account-toolbar"><div className="text-tabs">{(['all','personal','shared'] as const).map(v=><button aria-pressed={scope===v} key={v} onClick={()=>setScope(v)}>{v==='all'?t.all:t[v]}</button>)}</div><button className={`archive-button ${archived?'is-active':''}`} onClick={()=>setArchived(!archived)} aria-pressed={archived} title={t.archived}><Icon name="download" size={17}/>{ui(props.language,'archive')}</button></div>
++    {shown.some(a=>!['savings','deposit','investment'].includes(a.accountType))&&<section className="account-section"><div className="section-heading"><h2>{ui(props.language,'everyday')}</h2><span className="count-label">{shown.filter(a=>!['savings','deposit','investment'].includes(a.accountType)).length}</span></div>{shown.filter(a=>!['savings','deposit','investment'].includes(a.accountType)).map(card)}</section>}
++    {shown.some(a=>['savings','deposit','investment'].includes(a.accountType))&&<section className="account-section"><div className="section-heading"><h2>{ui(props.language,'savings')}</h2><Icon name="sparkle" size={17}/></div>{shown.filter(a=>['savings','deposit','investment'].includes(a.accountType)).map((a,i)=>card(a,i+2))}</section>}
++    {!shown.length&&<div className="empty-state"><Icon name="wallet" size={38}/><h2>{t.empty}</h2><button className="primary" onClick={()=>setEditing('new')}>{t.newAccount}</button></div>}
++    <button className="add-account" onClick={()=>setEditing('new')}><Icon name="plus" size={18}/>{t.newAccount}</button>
++    {!!recent.length&&<section className="recent-section"><div className="section-heading"><h2>{ui(props.language,'activity')}</h2><a className="text-link" href="#transactions">{ui(props.language,'seeAll')}<Icon name="right" size={14}/></a></div>{recent.map(tx=>{const cat=snapshot.categories.find(c=>c.id===tx.categoryId);return <a className="mini-transaction" key={tx.id} href={`#transactions?account=${tx.accountId}`}>{cat?<CategoryBadge category={cat}/>:<span className="tile-icon mint"><Icon name="transfer"/></span>}<div><strong>{tx.description??t[tx.transactionType]}</strong><small>{snapshot.accounts.find(a=>a.id===tx.accountId)?.name}</small></div><span className={BigInt(tx.originalAmount.amountMinor)>0n?'positive':''}>{hidden?'••••':<Amount value={tx.originalAmount} locale={locale} display={moneyDisplay}/>}</span></a>})}</section>}
++    {selected&&<Dialog title={selected.name} onClose={()=>setSelected(null)} t={t}><div className="detail-balance">{accountBalances(snapshot,selected,today()).map(v=><div key={v.currency}><span>{v.currency}</span><Amount value={v} locale={locale} display={moneyDisplay}/></div>)}</div><p className="hint">{t[selected.accountType]} · {t[selected.ownershipScope]}</p><ConvertedBalance values={accountBalances(snapshot,selected,today())} currency={selected.primaryCurrency} date={today()} locale={locale} display={moneyDisplay} t={t}/><div className="actions"><button className="primary" onClick={()=>{setEditing(selected);setSelected(null)}}>{t.editAccount}</button><a className="button" href={`#transactions?account=${selected.id}`}>{t.transactions}<Icon name="right" size={16}/></a></div></Dialog>}
++    {editing&&<AccountEditor {...props} existing={editing==='new'?undefined:editing} onClose={()=>setEditing(null)}/>}
+   </>;
+ }
+ 
+diff --git a/apps/web/src/features/auth.tsx b/apps/web/src/features/auth.tsx
+index e04d8a4622c9d42269ef74af53a591a232a8d12e..7acf487656ce76815106a3525a5f564e209e3d00 100644
+--- a/apps/web/src/features/auth.tsx
++++ b/apps/web/src/features/auth.tsx
+@@ -1,3 +1,4 @@
++import { Icon } from '../components/design';
+ import { useState, type FormEvent } from 'react';
+ import { ApiError, authenticate, type WebSession } from '../data/api';
+ import { ErrorMessage, Field, text } from '../components/shared';
+@@ -14,7 +15,7 @@ export function Auth({ t, onAuthenticated }: { t: Text; onAuthenticated: (sessio
+     catch (failure) { setError(failure instanceof ApiError && failure.code === 'email_in_use' ? t.emailInUse : failure instanceof ApiError && failure.status === 401 ? t.authError : t.requestError); }
+     finally { setBusy(false); }
+   }
+-  return <div className="auth-layout"><section className="auth-intro"><span className="hero-mark" aria-hidden="true">↗</span><h1>Road To The Wealth</h1><p className="hero-tagline">{t.tagline}</p><p>{t.cloudHint}</p></section><section className="card auth-card"><div className="mode-switch">{(['login', 'register'] as const).map((value) => <button key={value} className={mode === value ? 'primary' : ''} onClick={() => { setMode(value); setError(''); }} disabled={busy} aria-pressed={mode === value}>{t[value]}</button>)}</div><form onSubmit={(event) => void submit(event)}>
++  return <div className="auth-layout"><section className="auth-intro"><span className="hero-mark" aria-hidden="true"><Icon name="arrow" size={40}/></span><p className="eyebrow">ROAD TO THE WEALTH</p><h1>{t.tagline}</h1><p>{t.cloudHint}</p></section><section className="card auth-card"><div className="mode-switch">{(['login', 'register'] as const).map((value) => <button key={value} className={mode === value ? 'primary' : ''} onClick={() => { setMode(value); setError(''); }} disabled={busy} aria-pressed={mode === value}>{t[value]}</button>)}</div><form onSubmit={(event) => void submit(event)}>
+     <Field label={t.email}><input name="email" type="email" autoComplete="email" required maxLength={254} /></Field><Field label={t.password}><input name="password" type="password" autoComplete={mode === 'register' ? 'new-password' : 'current-password'} required minLength={12} maxLength={128} /></Field>
+     {mode === 'register' && <Field label={t.confirmPassword}><input name="confirm" type="password" autoComplete="new-password" required minLength={12} maxLength={128} /></Field>}
+     <ErrorMessage message={error} /><button disabled={busy} className="primary full-width">{busy ? t.loading : t[mode]}</button><p className="hint">{t.networkRequired}</p>
+diff --git a/apps/web/src/features/categories.tsx b/apps/web/src/features/categories.tsx
+index 149fc8f69920983e980491111f36a411270700b8..ad7bc88b8f8b9fdb612b3546b4e188fc360eadec 100644
+--- a/apps/web/src/features/categories.tsx
++++ b/apps/web/src/features/categories.tsx
+@@ -1,27 +1,37 @@
+ import { useState, type FormEvent } from 'react';
+ import type { Category } from '@rttw/domain';
+-import { audit, categoryLabel } from '../data/derived';
++import { audit, categoryLabel, isActual }  from '../data/derived';
+ import { errorText } from '../data/use-ledger';
+-import { Dialog, ErrorMessage, Field, SubmitButtons, text, type FeatureProps } from '../components/shared';
++import { Amount, Dialog, ErrorMessage, Field, SubmitButtons, text, type FeatureProps } from '../components/shared';
++import { useReportAmounts } from '../data/reporting';
++import { today } from '../format';
++import { Icon, ui, Heading, MonthPicker } from '../components/design';
+ import { categoryAppearance, categoryColors } from './category-appearance';
+ import { CategoryIcon, CategoryIconPicker } from './category-icon';
+ 
+ export function CategoryBadge({ category }: { category: Category }) {
+   const appearance = categoryAppearance(category);
+-  return <span className="category-badge" aria-hidden="true" style={{ background: appearance.background, color: appearance.foreground }}><CategoryIcon name={category.icon} /></span>;
++  return <span className="category-badge" aria-hidden="true" style={{ background: `color-mix(in srgb, ${appearance.background} 12%, transparent)`, color: appearance.foreground }}><CategoryIcon name={category.icon} /></span>;
+ }
+ export function Categories(props: FeatureProps) {
+   const { snapshot, t, language } = props;
+   const [editing, setEditing] = useState<Category | 'new' | null>(null);
+   const [archived, setArchived] = useState(false);
++  const [type,setType]=useState<'expense'|'income'>('expense');
++  const [month,setMonth]=useState(today().slice(0,7));
++  const [detail,setDetail]=useState<Category|null>(null);
++  const txs=snapshot.transactions.filter(x=>isActual(x,today())&&x.transactionDate.startsWith(month)&&['income','expense'].includes(x.transactionType));
++  const converted=useReportAmounts(txs,snapshot.household.baseCurrency,true,0);
++  const sumFor=(id:string)=>{let sum=0n;for(const tx of txs.filter(x=>x.transactionType===type)){const val=converted.amounts[tx.id];if(!val)continue;const splits=snapshot.splits.filter(s=>s.transactionId===tx.id&&!s.deletedAt);if(splits.length){let allocated=0n;splits.forEach((split,index)=>{const v=index===splits.length-1?BigInt(val.amountMinor)-allocated:BigInt(val.amountMinor)*BigInt(split.amount.amountMinor)/BigInt(tx.originalAmount.amountMinor);allocated+=v;if(split.categoryId===id||snapshot.categories.find(c=>c.id===split.categoryId)?.parentId===id)sum+=v})}else if(tx.categoryId===id||snapshot.categories.find(c=>c.id===tx.categoryId)?.parentId===id)sum+=BigInt(val.amountMinor)}return sum<0n?-sum:sum};
+   const visible = snapshot.categories.filter((item) => !item.deletedAt && item.isArchived === archived);
+-  return <><div className="section-heading"><h1>{t.categories}</h1><button className="primary" onClick={() => setEditing('new')}>{t.newCategory}</button></div>
+-    <label className="check"><input type="checkbox" checked={archived} onChange={(event) => setArchived(event.target.checked)} />{t.archived}</label>
+-    <div className="card-grid">{visible.map((category) => <article className="card category-card" key={category.id}><CategoryBadge category={category} /><div><h2>{categoryLabel(category, snapshot.categories, language)}</h2><p className="muted">{t[category.applicability]}</p></div><button onClick={() => setEditing(category)}>{t.edit}</button></article>)}</div>
+-    {!visible.length && <p className="empty">{t.empty}</p>}
+-    {editing && <CategoryEditor {...props} existing={editing === 'new' ? undefined : editing} onClose={() => setEditing(null)} />}
++  const total=txs.filter(x=>x.transactionType===type).reduce((s,x)=>s+BigInt(converted.amounts[x.id]?.amountMinor??'0'),0n);const abs=total<0n?-total:total;
++  return <><Heading title={t.categories} action={<button className="icon-button outlined" aria-label={t.newCategory} onClick={()=>setEditing('new')}><Icon name="plus"/></button>}/><MonthPicker value={month} onChange={setMonth} locale={props.locale}/><div className="flow-toggle">{(['expense','income'] as const).map(v=><button key={v} aria-pressed={type===v} onClick={()=>setType(v)}><span><Icon name={v==='expense'?'arrow':'income'} size={15}/>{ui(language,v)}</span><strong>{<Amount value={{currency:snapshot.household.baseCurrency,amountMinor:(txs.filter(x=>x.transactionType===v).reduce((sum,x)=>sum+BigInt(converted.amounts[x.id]?.amountMinor??'0'),0n)*(v==='expense'?-1n:1n)).toString()}} locale={props.locale} display={props.moneyDisplay}/>}</strong></button>)}</div>{!converted.loading&&txs.some(x=>!converted.amounts[x.id])&&<p className="notice">{t.fx_pending}: {txs.filter(x=>!converted.amounts[x.id]).length}</p>}<div className="section-heading category-topline"><h2>{t.categories}</h2><button className={`archive-button ${archived?'is-active':''}`} aria-pressed={archived} onClick={()=>setArchived(!archived)}>{t.archived}</button></div>
++    <div className="category-grid">{visible.filter(c=>c.applicability===type||c.applicability==='both').map(category=>{const sum=sumFor(category.id);return <button className="category-tile" key={category.id} onClick={()=>setDetail(category)}><CategoryBadge category={category}/><span className="category-tile-name">{categoryLabel(category,snapshot.categories,language)}</span><strong><Amount value={{currency:snapshot.household.baseCurrency,amountMinor:sum.toString()}} locale={props.locale} display={props.moneyDisplay}/></strong><div className="category-tile-track"><span style={{width:`${abs?Math.min(100,Number(sum*100n/abs)):0}%`,background:categoryAppearance(category).background}}/></div></button>})}<button className="category-tile new-category" onClick={()=>setEditing('new')}><span className="tile-icon"><Icon name="plus"/></span><span>{t.newCategory}</span></button></div>
++    {detail&&<Dialog title={detail.names[language]} t={t} onClose={()=>setDetail(null)}><div className="category-detail-hero"><CategoryBadge category={detail}/><strong><Amount value={{currency:snapshot.household.baseCurrency,amountMinor:sumFor(detail.id).toString()}} locale={props.locale} display={props.moneyDisplay}/></strong><p>{month} · {t[detail.applicability]}</p></div><div className="actions"><button className="primary" onClick={()=>{setEditing(detail);setDetail(null)}}>{t.editCategory}</button><a className="button" href={`#transactions?category=${detail.id}`}>{t.transactions}</a></div></Dialog>}
++    {editing&&<CategoryEditor {...props} existing={editing==='new'?undefined:editing} onClose={()=>setEditing(null)}/>}
+   </>;
+ }
++
+ function CategoryEditor({ existing, onClose, ...props }: FeatureProps & { existing: Category | undefined; onClose: () => void }) {
+   const { snapshot, t, language, command, busy } = props;
+   const [fields] = useState(() => audit(snapshot.member.id, existing));
+@@ -53,7 +63,7 @@ function CategoryEditor({ existing, onClose, ...props }: FeatureProps & { existi
+   return <Dialog title={existing ? t.editCategory : t.newCategory} onClose={onClose} t={t} busy={busy}>
+     <form onSubmit={(event) => void save(event)}>
+       {!existing?.systemKey && <div className="form-grid">{(['en', 'uk', 'ru'] as const).map((code) => <Field label={`${t.name} · ${code.toUpperCase()}`} key={code}><input name={code} required maxLength={120} defaultValue={existing?.names[code]} /></Field>)}</div>}
+-      <div className="category-appearance-preview"><span className="category-badge" style={{ background: color, color: iconColor }}><CategoryIcon name={icon} /></span><span>{t.categoryPreview}</span></div>
++      <div className="category-appearance-preview"><span className="category-badge" style={{ background: `color-mix(in srgb, ${color} 12%, transparent)`, color: iconColor }}><CategoryIcon name={icon} /></span><span>{t.categoryPreview}</span></div>
+       <div className="form-grid"><Field label={t.color}><input type="color" value={color} onChange={(event) => setColor(event.target.value)} list="category-colors" /></Field><Field label={t.iconColor}><input type="color" value={iconColor} onChange={(event) => setIconColor(event.target.value)} /></Field></div>
+       <datalist id="category-colors">{categoryColors.map((value) => <option key={value} value={value} />)}</datalist>
+       <CategoryIconPicker value={icon} onChange={setIcon} background={color} foreground={iconColor} language={language} t={t} />
+diff --git a/apps/web/src/features/fx.tsx b/apps/web/src/features/fx.tsx
+index 2f534ec0b5c72eeaf0f139b1dfc9466f4001d170..f703ea5f7279669c0c91a919af980dbaa7d7147d 100644
+--- a/apps/web/src/features/fx.tsx
++++ b/apps/web/src/features/fx.tsx
+@@ -1,5 +1,7 @@
+ import { useState, type FormEvent } from 'react';
+ import { addDays, convertMoney, parseMajorAmount, serializeMoney, type MoneyCurrencyCode, type WireMoney } from '@rttw/domain';
++import { Icon, Heading, ui } from '../components/design';
++import { FxWidget } from './overview-fx';
+ import { history, rates, type FxRate } from '../data/api';
+ import { errorText } from '../data/use-ledger';
+ import { today } from '../format';
+@@ -29,7 +31,7 @@ export function Fx(props: FeatureProps) {
+     event.preventDefault(); const data = new FormData(event.currentTarget); setHistoryLoading(true); setHistoryError(''); setSeries([]);
+     try { const result = await history(base, quote, text(data, 'from'), text(data, 'to')); setSeries(result.rates); if (!result.rates.length) setHistoryError(t.noRate); } catch (failure) { setHistoryError(errorText(failure, t)); } finally { setHistoryLoading(false); }
+   }
+-  return <><h1>{t.fx}</h1><section className="card"><h2>{t.calculator}</h2><form onSubmit={(event) => void calculate(event)}>
++  return <><Heading title={t.fx} subtitle="USD / EUR / GEL"/><section className="card fx-calculator"><h2>{t.calculator}</h2><form onSubmit={(event) => void calculate(event)}>
+     <div className="form-grid"><Field label={`${t.from} · ${t.currency}`}><CurrencySelect value={base} onChange={(value) => { setBase(value); setResult(null); setSeries([]); }} /></Field><Field label={`${t.to} · ${t.currency}`}><CurrencySelect value={quote} onChange={(value) => { setQuote(value); setResult(null); setSeries([]); }} /></Field></div>
+     <div className="form-grid"><Field label={t.amount}><input name="amount" inputMode="decimal" defaultValue="100" required /></Field><Field label={t.date}><input type="date" name="date" defaultValue={today()} required max={today()} /></Field></div>
+     <Field label={`${t.manualRate} · ${base} → ${quote}`}><input name="manual" inputMode="decimal" /></Field><button className="primary" disabled={working}>{working ? t.loading : t.calculate}</button>
+diff --git a/apps/web/src/features/more.tsx b/apps/web/src/features/more.tsx
+new file mode 100644
+index 0000000000000000000000000000000000000000..548c08d118344e330f7eb0a475bbff0b9219757f
+--- /dev/null
++++ b/apps/web/src/features/more.tsx
+@@ -0,0 +1,7 @@
++import { Icon, ui, Heading } from '../components/design';
++import type { FeatureProps } from '../components/shared';
++import type { WebSession } from '../data/api';
++export function More({language,t,webSession,onLogout,onRefresh}:FeatureProps&{webSession:WebSession;onLogout:()=>void;onRefresh:()=>void}){
++ const links=[['recurring','repeat',t.recurringPayments,ui(language,'upcoming'),'mint'],['fx','globe',t.fx,t.calculator,'blue'],['settings?section=family','users',t.household,t.members,'lavender'],['settings?section=appearance','sun',t.appearance,`${t.language} · ${t.textSize}`,'peach'],['settings?section=data','download',ui(language,'data'),t.backup,'mint']] as const;
++ return <><Heading title={ui(language,'profile')} subtitle="ROAD TO THE WEALTH"/><div className="profile-card"><div className="avatar large-avatar">{webSession.user.email.slice(0,1).toUpperCase()}</div><div><h2>{webSession.user.email.split('@')[0]}</h2><p>{webSession.user.email}</p></div><Icon name="lock" size={18}/></div><div className="menu-list">{links.map(([href,icon,title,description,color])=><a href={`#${href}`} className="menu-link" key={href}><span className={`tile-icon ${color}`}><Icon name={icon}/></span><span><strong>{title}</strong><small>{description}</small></span><Icon name="right" size={18}/></a>)}</div><div className="menu-list compact-menu"><button className="menu-link" onClick={onRefresh}><Icon name="refresh"/><strong>{t.refresh}</strong><Icon name="right" size={18}/></button><button className="menu-link" onClick={onLogout}><Icon name="logout"/><strong>{t.logout}</strong><Icon name="right" size={18}/></button></div><div className="more-footer">rttw<span>.</span><small>Road To The Wealth</small></div></>;
++}
+diff --git a/apps/web/src/features/overview.tsx b/apps/web/src/features/overview.tsx
+index 42c847a73e1515e1adbe03cc2b4b2947d9b40d5b..5a70617f37708e55714c59f9d42af5556a78ea73 100644
+--- a/apps/web/src/features/overview.tsx
++++ b/apps/web/src/features/overview.tsx
+@@ -6,6 +6,7 @@ import { displayDate, today } from '../format';
+ import { Amount, CurrencySelect, Field, type FeatureProps } from '../components/shared';
+ import { ConvertedBalance, FxWidget } from './overview-fx';
+ import { CategoryVisualization, CategoryViewSwitch, type CategoryView } from './category-visualization';
++import { Icon, ui, Heading, MonthPicker } from '../components/design';
+ import { Forecast } from './forecast';
+ 
+ type Scope = 'personal' | 'household';
+@@ -14,15 +15,9 @@ type ScopedProps = FeatureProps & { scope: Scope };
+ export function Overview({ scope, onScope, enabledCurrencies, ...props }: FeatureProps & {
+   scope: Scope; onScope: (scope: Scope) => void; enabledCurrencies: MoneyCurrencyCode[];
+ }) {
+-  const { snapshot, t } = props;
+-  return <>
+-    <div className="section-heading"><div><p className="eyebrow">{snapshot.household.name}</p><h1>{t.overview}</h1></div><a className="button primary" href="#transactions">+ {t.newTransaction}</a></div>
+-    <div className="overview-scope"><span>{t.scope}</span><div className="segmented-control" role="group" aria-label={t.scope}>
+-      {(['personal', 'household'] as const).map((value) => <button key={value} type="button" aria-pressed={scope === value} onClick={() => onScope(value)}>{t[value]}</button>)}
+-    </div><p className="hint">{t.overviewScopeHint}</p></div>
+-    <PeriodReports {...props} scope={scope} />
+-    <BalanceSnapshot {...props} scope={scope} enabledCurrencies={enabledCurrencies} />
+-  </>;
++  const {snapshot,t,language}=props;
++  const [panel,setPanel]=useState<'reports'|'balances'>('reports');
++  return <><Heading title={ui(language,'analytics')} subtitle={snapshot.household.name}/><div className="analytics-top"><div className="text-tabs"><button aria-pressed={panel==='reports'} onClick={()=>setPanel('reports')}>{t.cashFlowTitle}</button><button aria-pressed={panel==='balances'} onClick={()=>setPanel('balances')}>{t.balances}</button></div><select aria-label={t.scope} value={scope} onChange={e=>onScope(e.target.value as Scope)}><option value="personal">{t.personal}</option><option value="household">{t.household}</option></select></div>{panel==='reports'?<PeriodReports {...props} scope={scope}/>:<BalanceSnapshot {...props} scope={scope} enabledCurrencies={enabledCurrencies}/>}</>;
+ }
+ 
+ function PeriodReports({ scope, ...props }: ScopedProps) {
+@@ -30,10 +25,10 @@ function PeriodReports({ scope, ...props }: ScopedProps) {
+   const [anchor, setAnchor] = useState(today());
+   const [period, setPeriod] = useState<'day' | 'week' | 'month' | 'year'>('month');
+   const [showPlanned, setShowPlanned] = useState(false);
+-  const [reporting, setReporting] = useState(false);
++  const [reporting, setReporting] = useState(true);
+   const [reportCurrency, setReportCurrency] = useState(snapshot.household.baseCurrency);
+   const [retry, setRetry] = useState(0);
+-  const [view, setView] = useState<CategoryView>('listView');
++  const [view, setView] = useState<CategoryView>('donutView');
+   const range = reportPeriod(period, anchor);
+   const actualDate = today();
+   const accountIds = new Set(scopedAccounts(snapshot, scope).map((item) => item.id));
+@@ -45,25 +40,21 @@ function PeriodReports({ scope, ...props }: ScopedProps) {
+     ? new Intl.DateTimeFormat(locale, { month: 'long', year: 'numeric' }).format(new Date(`${range.from}T12:00:00`))
+     : period === 'year' ? anchor.slice(0, 4)
+     : range.from === range.to ? displayDate(range.from, locale) : `${displayDate(range.from, locale)} — ${displayDate(range.to, locale)}`;
+-  return <section className="overview-group overview-reports" aria-labelledby="overview-reports-title">
+-    <header className="overview-group-header">
+-      <div><h2 id="overview-reports-title">{t.periodReports}</h2><p className="hint">{t.reportPeriodHint}</p></div>
+-      <div className="report-period-controls">
+-        <div className="segmented-control" role="group" aria-label={t.period}>{(['day', 'week', 'month', 'year'] as const).map((value) => <button key={value} type="button" aria-pressed={period === value} onClick={() => setPeriod(value)}>{t[value]}</button>)}</div>
+-        <Field label={period === 'month' ? t.month : t.dateInPeriod}><input type={period === 'month' ? 'month' : 'date'} value={period === 'month' ? anchor.slice(0, 7) : anchor} onChange={(event) => { if (event.target.value) setAnchor(period === 'month' ? `${event.target.value}-01` : event.target.value); }} /></Field>
+-      </div>
+-      <div className="report-context"><strong>{periodLabel}</strong><span>{displayDate(range.from, locale)} → {displayDate(range.to, locale)}</span><span>{reporting ? reportCurrency : t.originalCurrencies}</span></div>
+-      <div className="report-options"><label className="check"><input type="checkbox" checked={reporting} onChange={(event) => setReporting(event.target.checked)} />{t.reportCurrency}</label>{reporting && <Field label={t.currency}><CurrencySelect value={reportCurrency} onChange={setReportCurrency} /></Field>}<label className="check"><input type="checkbox" checked={showPlanned} onChange={(event) => setShowPlanned(event.target.checked)} />{t.showPlanned}</label></div>
+-      {reporting && <><p className="hint">{t.reportFxHint}</p>{conversions.loading && <p role="status">{t.loading}</p>}{!conversions.loading && flow.pending > 0 && <button type="button" onClick={() => setRetry((value) => value + 1)}>{t.retry}</button>}{!!conversions.usedRates.length && <details><summary>{t.fx}</summary>{conversions.usedRates.map((rate) => <p className="hint" key={`${rate.base}:${rate.quote}:${rate.requestedDate}`}>1 {rate.base} = {rate.rateDecimal} {rate.quote} · {rate.provider} · {rate.requestedDate} → {rate.effectiveDate}</p>)}</details>}</>}
+-    </header>
+-    <div className="overview-widget-grid">
+-      <section className="card"><div className="section-heading"><div><h3>{t.cashFlowTitle}</h3><p className="widget-context">{periodLabel}</p></div></div>
+-        {flow.pending > 0 && <p className="notice">{t.fx_pending}: {flow.pending}</p>}
+-        <div className="table-wrap"><table><thead><tr><th>{t.currency}</th><th>{t.income}</th><th>{t.expense}</th><th>{t.net}</th></tr></thead><tbody>{flow.totals.map((value) => <tr key={value.currency}><th>{value.currency}</th><td className="positive"><Amount value={{ currency: value.currency, amountMinor: value.income.toString() }} locale={locale} display={moneyDisplay} /></td><td className="negative"><Amount value={{ currency: value.currency, amountMinor: value.expense.toString() }} locale={locale} display={moneyDisplay} /></td><td><Amount value={{ currency: value.currency, amountMinor: (value.income - value.expense).toString() }} locale={locale} display={moneyDisplay} /></td></tr>)}</tbody></table></div>{!flow.totals.length && <p className="empty">{t.empty}</p>}
+-      </section>
+-      <section className="card"><div className="section-heading"><div><h3>{t.expenseCategories}</h3><p className="widget-context">{periodLabel}</p></div><CategoryViewSwitch value={view} onChange={setView} t={t} /></div><p className="hint">{t.rollupHint}</p><CategoryVisualization rows={rollup} categories={snapshot.categories} language={language} locale={locale} display={moneyDisplay} t={t} view={view} />{!rollup.length && <p className="empty">{t.empty}</p>}</section>
+-    </div>
+-    {showPlanned && <Forecast {...props} scope={scope} period={range} reportCurrency={reportCurrency} reporting={reporting} />}
++  const days=Array.from({length:Math.min(366,Math.round((Date.parse(range.to)-Date.parse(range.from))/86400000)+1)},(_,i)=>new Date(Date.parse(range.from)+i*86400000).toISOString().slice(0,10));
++  const bins=period==='year'?Array.from({length:12},(_,i)=>`${anchor.slice(0,4)}-${String(i+1).padStart(2,'0')}`):days;
++  const values=bins.map(date=>reportTransactions.filter(tx=>tx.transactionDate.startsWith(date)&&tx.transactionType==='expense').reduce((sum,tx)=>{const v=conversions.amounts[tx.id];return sum+(v?-BigInt(v.amountMinor):0n)},0n));
++  const max=values.reduce((m,v)=>v>m?v:m,1n);
++  return <section className="overview-group overview-reports" aria-label={t.periodReports}>
++    <div className="period-tabs segmented-control">{(['day','week','month','year'] as const).map(value=><button key={value} aria-pressed={period===value} onClick={()=>setPeriod(value)}>{t[value]}</button>)}</div>
++    {period==='month'?<MonthPicker value={anchor.slice(0,7)} onChange={value=>setAnchor(`${value}-01`)} locale={locale}/>:<Field label={t.dateInPeriod}><input type="date" value={anchor} onChange={e=>e.target.value&&setAnchor(e.target.value)}/></Field>}
++    <details className="report-settings"><summary><Icon name="filter" size={17}/><span>{reporting?reportCurrency:t.originalCurrencies}</span><Icon name="down" size={14}/></summary><label className="check"><input type="checkbox" checked={reporting} onChange={e=>setReporting(e.target.checked)}/>{t.reportCurrency}</label>{reporting&&<Field label={t.currency}><CurrencySelect value={reportCurrency} onChange={setReportCurrency}/></Field>}<p className="hint">{t.reportFxHint}</p>{!!conversions.usedRates.length&&<details><summary>{t.fx}</summary>{conversions.usedRates.map(rate=><p className="hint" key={`${rate.base}:${rate.quote}:${rate.requestedDate}`}>1 {rate.base} = {rate.rateDecimal} {rate.quote} · {rate.provider} · {rate.requestedDate} → {rate.effectiveDate}</p>)}</details>}</details>
++    {conversions.loading&&<p className="hint" role="status">{t.loading}</p>}{flow.pending>0&&!conversions.loading&&<div className="notice">{t.fx_pending}: {flow.pending}<button onClick={()=>setRetry(v=>v+1)}>{t.retry}</button></div>}
++    {flow.totals.map(value=><div className="analytics-totals" key={value.currency}><div className="flow-card expense"><span><Icon name="arrow" size={16}/>{ui(language,'expense')}</span><strong><Amount value={{currency:value.currency,amountMinor:value.expense.toString()}} locale={locale} display={moneyDisplay}/></strong></div><div className="flow-card income"><span><Icon name="income" size={16}/>{ui(language,'income')}</span><strong><Amount value={{currency:value.currency,amountMinor:value.income.toString()}} locale={locale} display={moneyDisplay}/></strong></div><div className="net-row"><span>{t.net} · {value.currency}</span><strong className={value.income-value.expense>=0n?'positive':'negative'}><Amount value={{currency:value.currency,amountMinor:(value.income-value.expense).toString()}} locale={locale} display={moneyDisplay}/></strong></div></div>)}
++    {!flow.totals.length&&!conversions.loading&&<div className="empty-state"><Icon name="chart" size={36}/><p>{ui(language,'noActual')}</p></div>}
++    <section className="card spending-card"><div className="section-heading"><h2>{ui(language,'expense')}</h2><CategoryViewSwitch value={view} onChange={setView} t={t}/></div><CategoryVisualization rows={rollup} categories={snapshot.categories} language={language} locale={locale} display={moneyDisplay} t={t} view={view}/>{!rollup.length&&<p className="empty">{t.empty}</p>}</section>
++    {reporting&&values.some(v=>v>0n)&&<section className="card daily-chart"><div className="section-heading"><h2>{t.expense} · {reportCurrency}</h2><span className="hint">{periodLabel}</span></div><div className="daily-bars" role="img" aria-label={`${t.expense} · ${periodLabel} · ${reportCurrency}`}>{values.map((v,i)=><span key={i} style={{height:`${Math.max(2,Number(v*100n/max))}%`}} className={bins[i]===today()?'today':''} title={`${bins[i]}: ${v.toString()} minor units`}/>)}</div><div className="chart-axis"><span>{bins[0]}</span><span>{bins.at(-1)}</span></div></section>}
++    <label className="forecast-switch"><span className="tile-icon lavender"><Icon name="calendar" size={20}/></span><span>{t.showPlanned}</span><input type="checkbox" checked={showPlanned} onChange={e=>setShowPlanned(e.target.checked)}/></label>
++    {showPlanned&&<Forecast {...props} scope={scope} period={range} reportCurrency={reportCurrency} reporting={reporting}/>}
+   </section>;
+ }
+ 
+diff --git a/apps/web/src/features/recurring.tsx b/apps/web/src/features/recurring.tsx
+index b811eabfbf78f22b9274ae7f8031f6f9a7cac608..350c568b5035c1fbf14b7a7321ca6c8e28c221e6 100644
+--- a/apps/web/src/features/recurring.tsx
++++ b/apps/web/src/features/recurring.tsx
+@@ -5,6 +5,7 @@ import { errorText } from '../data/use-ledger';
+ import { displayDate, today } from '../format';
+ import { Amount, CurrencySelect, Dialog, ErrorMessage, Field, majorInput, type FeatureProps } from '../components/shared';
+ import type { Text } from '../i18n';
++import { Icon, Heading, ui } from '../components/design';
+ import { CategoryBadge } from './categories';
+ 
+ type Preset = 'monthly' | 'weekly' | 'yearly' | 'custom';
+@@ -41,8 +42,8 @@ export function Recurring(props: FeatureProps) {
+     catch (failure) { setError(errorText(failure, t)); }
+   }
+   return <>
+-    <div className="section-heading"><h1>{t.recurringPayments}</h1><button className="primary" disabled={!availableAccounts.length || busy} onClick={() => setEditing('new')}>{t.newRule}</button></div>
+-    <p className="hint">{t.recurringHint}</p><ErrorMessage message={error} />{message && <p className="notice" role="status">{message}</p>}
++    <Heading title={t.recurring} subtitle={ui(language,'upcoming')} action={<button className="icon-button outlined" disabled={!availableAccounts.length||busy} onClick={()=>setEditing('new')} aria-label={t.newRule}><Icon name="plus"/></button>}/>
++    <div className="schedule-banner"><span className="tile-icon lavender"><Icon name="calendar" size={24}/></span><div><strong>{rules.filter(r=>r.isActive).length} · {t.active.toLowerCase()}</strong><p>{t.recurringAutoHint}</p></div></div><ErrorMessage message={error} />{message && <p className="notice" role="status">{message}</p>}
+     {!availableAccounts.length && <p className="notice">{t.recurringNeedsAccount} <a href="#accounts">{t.newAccount}</a></p>}
+     {!rules.length && <div className="card recurring-empty"><h2>{t.recurringEmptyTitle}</h2><p className="hint">{t.recurringEmptyHint}</p>{!!availableAccounts.length && <button className="primary" disabled={busy} onClick={() => setEditing('new')}>{t.newRule}</button>}</div>}
+     <div className="card-grid">{rules.map((rule) => {
+diff --git a/apps/web/src/features/settings.tsx b/apps/web/src/features/settings.tsx
+index 235ab90d43ad141806af30527ea6a6f16c4fbe52..cb819881084832523a06bcad26bf0b123e295fa2 100644
+--- a/apps/web/src/features/settings.tsx
++++ b/apps/web/src/features/settings.tsx
+@@ -1,5 +1,6 @@
+ import { useEffect, useState, type FormEvent } from 'react';
+ import type { MoneyCurrencyCode } from '@rttw/domain';
++import { Heading, Icon, ui } from '../components/design';
+ import { languages, type Language } from '../i18n';
+ import { themes } from '../themes';
+ import { request, type WebHousehold, type WebSession } from '../data/api';
+@@ -12,6 +13,7 @@ import { HouseholdCreator } from './household';
+ 
+ export function Settings({ preferences, webSession, refresh, onHouseholdsChanged, ...props }: FeatureProps & { preferences: Preferences; webSession: WebSession; refresh: () => Promise<void>; onHouseholdsChanged: (household?: WebHousehold) => Promise<void> }) {
+   const { t, snapshot } = props;
++  const [panel,setPanel]=useState(()=>new URLSearchParams(location.hash.split('?')[1]).get('section')??'appearance');
+   const [currency, setCurrency] = useState(snapshot.household.baseCurrency);
+   const [members, setMembers] = useState<Member[]>([]);
+   const [membersLoading, setMembersLoading] = useState(true);
+@@ -34,16 +36,16 @@ export function Settings({ preferences, webSession, refresh, onHouseholdsChanged
+     try { await request(`/api/web/households/${snapshot.household.id}/settings`, { name: text(data, 'name'), baseCurrency: currency }); await onHouseholdsChanged(); await refresh(); } catch (failure) { setError(errorText(failure, t)); } finally { setWorking(false); }
+   }
+   function toggle(code: MoneyCurrencyCode) { preferences.setEnabledCurrencies(preferences.enabledCurrencies.includes(code) ? preferences.enabledCurrencies.filter((item) => item !== code) : [...preferences.enabledCurrencies, code]); }
+-  return <><h1>{t.settings}</h1><section className="card"><p>{webSession.user.email}</p><p className="hint">{t.serverConnected}</p><Field label={t.language}><select value={preferences.language} onChange={(event) => preferences.setLanguage(event.target.value as Language)}>{Object.entries(languages).map(([code, language]) => <option key={code} value={code}>{language.flag} {language.label}</option>)}</select></Field>
++  return <div className={`settings-content settings-${panel}`}><Heading title={t.settings}/><div className="segmented-control settings-tabs">{['appearance','family','data'].map(value=><button key={value} aria-pressed={panel===value} onClick={()=>setPanel(value)}>{value==='appearance'?t.appearance:value==='family'?t.household:ui(props.language,'data')}</button>)}</div><section className="card settings-appearance"><p>{webSession.user.email}</p><p className="hint">{t.serverConnected}</p><Field label={t.language}><select value={preferences.language} onChange={(event) => preferences.setLanguage(event.target.value as Language)}>{Object.entries(languages).map(([code, language]) => <option key={code} value={code}>{language.flag} {language.label}</option>)}</select></Field>
+     <fieldset><legend>{t.appearance}</legend><div className="theme-grid">{themes.map((theme) => <button type="button" key={theme.id} onClick={() => preferences.setThemeId(theme.id)} aria-pressed={preferences.themeId === theme.id} className={preferences.themeId === theme.id ? 'selected-theme' : ''}><span className="theme-dot" style={{ background: theme.primary }} aria-hidden="true" />{theme.name}</button>)}</div></fieldset>
+     <div className="form-grid"><Field label={t.textSize}><select value={preferences.fontSize} onChange={(event) => preferences.setFontSize(event.target.value as Preferences['fontSize'])}>{(['normal', 'large', 'extraLarge'] as const).map((value) => <option key={value} value={value}>{t[value]}</option>)}</select></Field><Field label={t.moneyDisplay}><select value={preferences.moneyDisplay} onChange={(event) => preferences.setMoneyDisplay(event.target.value as Preferences['moneyDisplay'])}><option value="code">{t.code}</option><option value="symbol">{t.symbol}</option></select></Field><Field label={t.scope}><select value={preferences.scope} onChange={(event) => preferences.setScope(event.target.value as Preferences['scope'])}><option value="personal">{t.personal}</option><option value="household">{t.household}</option></select></Field></div>
+     <fieldset><legend>{t.currencies}</legend><div className="choices">{currencies.map((code) => <label className="check" key={code}><input type="checkbox" checked={preferences.enabledCurrencies.includes(code) || code === snapshot.household.baseCurrency} disabled={code === snapshot.household.baseCurrency} onChange={() => toggle(code)} />{code}</label>)}</div></fieldset><p className="hint">{t.preferencesHint}</p>
+   </section>
+-  {snapshot.member.role === 'owner' && <section className="card"><h2>{t.household}</h2><form onSubmit={(event) => void saveHousehold(event)}><Field label={t.householdName}><input name="name" required maxLength={120} defaultValue={snapshot.household.name} /></Field><Field label={t.baseCurrency}><CurrencySelect value={currency} onChange={setCurrency} /></Field><p className="hint">{t.baseCurrencyHint}</p><button className="primary" disabled={working}>{working ? t.saving : t.save}</button></form></section>}
+-  <section className="card"><div className="section-heading"><h2>{t.members}</h2><button disabled={membersLoading} onClick={() => void loadMembers()}>{t.refresh}</button></div>{membersLoading ? <p role="status">{t.loading}</p> : membersError ? <><ErrorMessage message={membersError} /><button onClick={() => void loadMembers()}>{t.retry}</button></> : members.map((member) => <div className="account-summary" key={member.id}><div><strong>{member.displayName}</strong><p className="muted">{member.email}</p></div><span>{t[member.role]}</span></div>)}
++  {snapshot.member.role === 'owner' && <section className="card settings-family"><h2>{t.household}</h2><form onSubmit={(event) => void saveHousehold(event)}><Field label={t.householdName}><input name="name" required maxLength={120} defaultValue={snapshot.household.name} /></Field><Field label={t.baseCurrency}><CurrencySelect value={currency} onChange={setCurrency} /></Field><p className="hint">{t.baseCurrencyHint}</p><button className="primary" disabled={working}>{working ? t.saving : t.save}</button></form></section>}
++  <section className="card settings-family"><div className="section-heading"><h2>{t.members}</h2><button disabled={membersLoading} onClick={() => void loadMembers()}>{t.refresh}</button></div>{membersLoading ? <p role="status">{t.loading}</p> : membersError ? <><ErrorMessage message={membersError} /><button onClick={() => void loadMembers()}>{t.retry}</button></> : members.map((member) => <div className="account-summary" key={member.id}><div><strong>{member.displayName}</strong><p className="muted">{member.email}</p></div><span>{t[member.role]}</span></div>)}
+     {snapshot.member.role === 'owner' && <form onSubmit={(event) => void invite(event)}><h3>{t.invite}</h3><Field label={t.email}><input name="email" type="email" required maxLength={254} /></Field><button disabled={working}>{working ? t.saving : t.invite}</button></form>}
+     {link && <><Field label={t.invitationLink}><input readOnly value={link} onFocus={(event) => event.target.select()} /></Field><p className="hint">{t.invitationHint}</p><button onClick={() => { void navigator.clipboard?.writeText(link).then(() => setCopied(true)).catch(() => {}); }}>{copied ? t.copied : t.copyLink}</button></>}
+-  </section><ErrorMessage message={error} /><Backup {...props} refresh={refresh} />
+-  <section className="card"><h2>{t.createHousehold}</h2><HouseholdCreator t={t} onCreated={onHouseholdsChanged} /></section>
+-  </>;
++  </section><ErrorMessage message={error} /><div className="settings-data"><Backup {...props} refresh={refresh}/></div>
++  <section className="card settings-family settings-data"><h2>{t.createHousehold}</h2><HouseholdCreator t={t} onCreated={onHouseholdsChanged} /></section>
++  </div>;
+ }
+diff --git a/apps/web/src/features/transaction-editor.tsx b/apps/web/src/features/transaction-editor.tsx
+index 2dc0354b4262736d7345591fbf0ebf01796b8f74..72641e8b58e054aafb4c8ef88d1336d446aa62c1 100644
+--- a/apps/web/src/features/transaction-editor.tsx
++++ b/apps/web/src/features/transaction-editor.tsx
+@@ -3,6 +3,8 @@ import { convertMoney, deserializeMoney, parseMajorAmount, serializeMoney, type
+ import { audit, categoryLabel } from '../data/derived';
+ import { rates } from '../data/api';
+ import { errorText } from '../data/use-ledger';
++import { Icon, ui } from '../components/design';
++import { CategoryBadge } from './categories';
+ import { today } from '../format';
+ import { CurrencySelect, Dialog, ErrorMessage, Field, SubmitButtons, majorInput, text, type FeatureProps } from '../components/shared';
+ 
+@@ -22,6 +24,9 @@ export function TransactionEditor({ existing, onClose, ...props }: FeatureProps
+   const [split, setSplit] = useState(snapshot.splits.some((item) => item.transactionId === existing?.id && !item.deletedAt));
+   const [splits, setSplits] = useState<DraftSplit[]>(() => snapshot.splits.filter((item) => item.transactionId === existing?.id && !item.deletedAt).map((item) => ({ key: item.id, categoryId: item.categoryId, amount: majorInput(item.amount), existing: item })));
+   const [error, setError] = useState('');
++  const [amount,setAmount]=useState(existing?majorInput(existing.originalAmount):'');
++  const [keypad,setKeypad]=useState(true);
++  const [dateValue,setDateValue]=useState(existing?.transactionDate??today());
+   const [working, setWorking] = useState(false);
+   const busy = working || props.busy;
+   const account = accounts.find((item) => item.id === accountId);
+@@ -101,17 +106,24 @@ export function TransactionEditor({ existing, onClose, ...props }: FeatureProps
+         status: date > today() ? 'planned' : reportingAmount ? 'confirmed' : 'fx_pending' }, splits: savedSplits }); onClose();
+     } catch (failure) { setError(errorText(failure, t)); } finally { setWorking(false); }
+   }
+-  return <Dialog title={existing ? t.editTransaction : t.newTransaction} onClose={onClose} t={t} busy={busy}><form onSubmit={(event) => void save(event)}>
+-    <Field label={t.type}><select value={type} onChange={(event) => { setType(event.target.value as EntryType); setCategoryId(''); }}><option value="expense">{t.expense}</option><option value="income">{t.income}</option>{!existing && <option value="transfer">{t.transfer}</option>}</select></Field>
+-    <div className="form-grid"><Field label={t.account}><select value={accountId} onChange={(event) => { const item = accounts.find((candidate) => candidate.id === event.target.value); setAccountId(event.target.value); if (item && !item.openingBalances.some((value) => value.currency === currency)) setCurrency(item.primaryCurrency); }} required><option value="">—</option>{accounts.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></Field><Field label={t.currency}><CurrencySelect value={currency} onChange={setCurrency} codes={codes} /></Field></div>
+-    <div className="form-grid"><Field label={t.amount}><input name="amount" inputMode="decimal" required defaultValue={existing ? majorInput(existing.originalAmount) : ''} autoFocus /></Field><Field label={t.date}><input type="date" name="date" required defaultValue={existing?.transactionDate ?? today()} /></Field></div>
+-    {type === 'transfer' ? <><Field label={t.destination}><select value={destination} onChange={(event) => setDestination(event.target.value)} required><option value="">—</option>{accounts.filter((item) => !item.isArchived && item.id !== accountId && item.openingBalances.some((value) => value.currency === currency)).map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></Field><Field label={`${t.fee} · ${currency}`}><input name="fee" inputMode="decimal" /></Field><p className="hint">{t.transferHint}</p></> : <>
+-      <label className="check"><input type="checkbox" checked={split} onChange={(event) => { setSplit(event.target.checked); if (event.target.checked && !splits.length) setSplits([{ key: crypto.randomUUID(), categoryId: '', amount: '' }, { key: crypto.randomUUID(), categoryId: '', amount: '' }]); }} />{t.split}</label>
+-      {split ? <fieldset><legend>{t.categories}</legend>{splits.map((item, index) => <div className="split-row" key={item.key}><Field label={`${t.category} ${index + 1}`}><select value={item.categoryId} onChange={(event) => setSplits((current) => current.map((value) => value.key === item.key ? { ...value, categoryId: event.target.value } : value))} required><option value="">—</option>{applicable.map((value) => <option key={value.id} value={value.id}>{categoryLabel(value, snapshot.categories, language)}</option>)}</select></Field><Field label={`${t.amount} · ${currency}`}><input inputMode="decimal" required value={item.amount} onChange={(event) => setSplits((current) => current.map((value) => value.key === item.key ? { ...value, amount: event.target.value } : value))} /></Field><button type="button" onClick={() => setSplits((current) => current.filter((value) => value.key !== item.key))} aria-label={`${t.remove} ${index + 1}`}>×</button></div>)}<button type="button" onClick={() => setSplits((current) => [...current, { key: crypto.randomUUID(), categoryId: '', amount: '' }])}>{t.addSplit}</button></fieldset> : <Field label={t.category}><select value={categoryId} onChange={(event) => setCategoryId(event.target.value)}><option value="">{t.noCategory}</option>{applicable.map((item) => <option key={item.id} value={item.id}>{categoryLabel(item, snapshot.categories, language)}</option>)}</select></Field>}
+-      {currency !== snapshot.household.baseCurrency && <><Field label={`${t.manualRate} · ${snapshot.household.baseCurrency}`}><input name="manualRate" inputMode="decimal" placeholder={existing?.fxSnapshot?.rateDecimal ?? ''} /></Field><p className="hint">{t.fxHint}</p>{existing?.fxSnapshot && <p className="hint">{t.rate}: {existing.fxSnapshot.rateDecimal} · {existing.fxSnapshot.provider} · {existing.fxSnapshot.effectiveDate}</p>}</>}
++  const selectAccount=(id:string)=>{const item=accounts.find(a=>a.id===id);setAccountId(id);if(item&&!item.openingBalances.some(v=>v.currency===currency))setCurrency(item.primaryCurrency)};
++  const press=(key:string)=>{setAmount(v=>key==='back'?v.slice(0,-1):key==='.'?(v.includes('.')?v:(v||'0')+'.'):v.length<15?(v==='0'?key:v+key):v)};
++  return <Dialog title={existing?t.editTransaction:t.newTransaction} onClose={onClose} t={t} busy={busy}><form className="entry-form" onSubmit={event=>void save(event)}>
++    <div className="entry-types segmented-control">{(['expense','income',...(!existing?['transfer']:[])] as EntryType[]).map(value=><button key={value} type="button" aria-pressed={type===value} onClick={()=>{setType(value);setCategoryId('');setSplit(false)}}><Icon name={value==='expense'?'arrow':value==='income'?'income':'transfer'} size={16}/>{t[value]}</button>)}</div>
++    <label className="entry-date"><Icon name="calendar" size={16}/><span>{dateValue===today()?ui(language,'now'):dateValue}</span><Icon name="down" size={12}/><input type="date" name="date" required value={dateValue} onChange={e=>setDateValue(e.target.value)}/></label>
++    <div className={`entry-amount ${type}`}><input aria-label={t.amount} name="amount" inputMode="decimal" required value={amount} placeholder="0" readOnly={keypad} onChange={e=>setAmount(e.target.value)}/><CurrencySelect value={currency} onChange={setCurrency} codes={codes}/></div>
++    <div className="entry-selection"><Field label={t.account}><select value={accountId} onChange={e=>selectAccount(e.target.value)} required><option value="">—</option>{accounts.map(item=><option key={item.id} value={item.id}>{item.name}</option>)}</select></Field>{type==='transfer'?<Field label={t.destination}><select value={destination} onChange={e=>setDestination(e.target.value)} required><option value="">—</option>{accounts.filter(item=>!item.isArchived&&item.id!==accountId&&item.openingBalances.some(v=>v.currency===currency)).map(item=><option key={item.id} value={item.id}>{item.name}</option>)}</select></Field>:<Field label={t.category}><select value={categoryId} disabled={split} onChange={e=>setCategoryId(e.target.value)}><option value="">{split?t.split:t.noCategory}</option>{applicable.map(item=><option key={item.id} value={item.id}>{categoryLabel(item,snapshot.categories,language)}</option>)}</select></Field>}</div>
++    {type!=='transfer'&&!split&&<div className="quick-categories">{applicable.filter(c=>!c.parentId).slice(0,8).map(c=><button type="button" key={c.id} aria-pressed={categoryId===c.id} onClick={()=>setCategoryId(c.id)}><CategoryBadge category={c}/><span>{c.names[language]}</span></button>)}</div>}
++    <Field label={t.description}><input className="description-input" name="description" placeholder={t.description} maxLength={500} defaultValue={existing?.description??''}/></Field>
++    <details className="entry-options"><summary><Icon name="more" size={16}/>{ui(language,'advanced')}<Icon name="down" size={14}/></summary>
++    {type==='transfer'?<><Field label={`${t.fee} · ${currency}`}><input name="fee" inputMode="decimal"/></Field><p className="hint">{t.transferHint}</p></>:<>
++      <label className="check"><input type="checkbox" checked={split} onChange={e=>{setSplit(e.target.checked);if(e.target.checked&&!splits.length)setSplits([{key:crypto.randomUUID(),categoryId:'',amount:''},{key:crypto.randomUUID(),categoryId:'',amount:''}])}}/>{t.split}</label>
++      {split&&<fieldset><legend>{t.categories}</legend>{splits.map((item,index)=><div className="split-row" key={item.key}><Field label={`${t.category} ${index+1}`}><select value={item.categoryId} onChange={e=>setSplits(current=>current.map(v=>v.key===item.key?{...v,categoryId:e.target.value}:v))} required><option value="">—</option>{applicable.map(v=><option key={v.id} value={v.id}>{categoryLabel(v,snapshot.categories,language)}</option>)}</select></Field><Field label={`${t.amount} · ${currency}`}><input inputMode="decimal" required value={item.amount} onChange={e=>setSplits(current=>current.map(v=>v.key===item.key?{...v,amount:e.target.value}:v))}/></Field><button type="button" onClick={()=>setSplits(current=>current.filter(v=>v.key!==item.key))} aria-label={`${t.remove} ${index+1}`}><Icon name="close" size={16}/></button></div>)}<button type="button" onClick={()=>setSplits(current=>[...current,{key:crypto.randomUUID(),categoryId:'',amount:''}])}>{t.addSplit}</button></fieldset>}
++      {currency!==snapshot.household.baseCurrency&&<><Field label={`${t.manualRate} · ${snapshot.household.baseCurrency}`}><input name="manualRate" inputMode="decimal" placeholder={existing?.fxSnapshot?.rateDecimal??''}/></Field><p className="hint">{t.fxHint}</p>{existing?.fxSnapshot&&<p className="hint">{t.rate}: {existing.fxSnapshot.rateDecimal} · {existing.fxSnapshot.provider} · {existing.fxSnapshot.effectiveDate}</p>}</>}
+     </>}
+-    <Field label={t.description}><input name="description" maxLength={500} defaultValue={existing?.description ?? ''} /></Field>
+-    <Field label={t.notes}><textarea name="notes" rows={3} maxLength={4000} defaultValue={existing?.notes ?? ''} /></Field>
+-    <ErrorMessage message={error} /><SubmitButtons busy={busy} t={t} onClose={onClose} />
++    <Field label={t.notes}><textarea name="notes" rows={2} maxLength={4000} defaultValue={existing?.notes??''}/></Field></details>
++    <div className="keypad-toggle"><label className="check"><input type="checkbox" checked={keypad} onChange={e=>setKeypad(e.target.checked)}/>{ui(language,'keypad')}</label></div>
++    {keypad&&<div className="keypad">{['1','2','3','4','5','6','7','8','9','.','0','back'].map(key=><button type="button" key={key} aria-label={key==='back'?t.remove:key} onClick={()=>press(key)}>{key==='back'?<Icon name="backspace" size={24}/>:key}</button>)}</div>}
++    <ErrorMessage message={error}/><div className="entry-submit"><button className="primary full-width" disabled={busy}><Icon name="check" size={20}/>{busy?t.saving:t.save}</button></div>
+   </form></Dialog>;
+ }
+diff --git a/apps/web/src/features/transactions.tsx b/apps/web/src/features/transactions.tsx
+index bced8f225ae558c82e22c91fe560411ee5ad146e..8d048115aa75bb4463cbbaaa2e3e0c216e79215e 100644
+--- a/apps/web/src/features/transactions.tsx
++++ b/apps/web/src/features/transactions.tsx
+@@ -5,6 +5,8 @@ import { categoryLabel } from '../data/derived';
+ import { errorText } from '../data/use-ledger';
+ import { displayDate, today } from '../format';
+ import { Amount, Dialog, ErrorMessage, Field, currencies, type FeatureProps } from '../components/shared';
++import { Icon, ui, Heading } from '../components/design';
++import { CategoryBadge } from './categories';
+ import { TransactionEditor } from './transaction-editor';
+ 
+ type Filters = { search: string; from: string; to: string; account: string; category: string; currency: string; member: string; source: string; type: string };
+@@ -12,7 +14,7 @@ const emptyFilters: Filters = { search: '', from: '', to: '', account: '', categ
+ export type Member = { id: string; userId: string; displayName: string; email: string; role: 'owner' | 'member' };
+ export function Transactions(props: FeatureProps) {
+   const { snapshot, t, language, locale, command, busy, moneyDisplay } = props;
+-  const [filters, setFilters] = useState<Filters>(() => ({ ...emptyFilters, account: new URLSearchParams(location.hash.split('?')[1]).get('account') ?? '' }));
++  const [filters, setFilters] = useState<Filters>(() => ({ ...emptyFilters, account: new URLSearchParams(location.hash.split('?')[1]).get('account') ?? '', category: new URLSearchParams(location.hash.split('?')[1]).get('category') ?? '' }));
+   const [members, setMembers] = useState<Member[]>([]);
+   const [editing, setEditing] = useState<Transaction | 'new' | null>(null);
+   const [deleting, setDeleting] = useState<Transaction | null>(null);
+@@ -57,10 +59,10 @@ export function Transactions(props: FeatureProps) {
+   const planned = visible.filter((item) => item.status === 'planned' || item.transactionDate > today());
+   const actual = visible.filter((item) => (item.status === 'confirmed' || item.status === 'fx_pending') && item.transactionDate <= today());
+   const reviews = visible.filter((item) => item.status === 'review' && item.transactionDate <= today());
+-  return <><div className="section-heading"><h1>{t.transactions}</h1><button className="primary" onClick={() => setEditing('new')} disabled={!snapshot.accounts.some((item) => !item.isArchived && !item.deletedAt)}>{t.newTransaction}</button></div>
++  return <><Heading title={t.transactions} subtitle={ui(language,'monthTotal')} action={<button className="icon-button outlined" aria-label={t.newTransaction} onClick={()=>setEditing('new')} disabled={!snapshot.accounts.some(a=>!a.isArchived&&!a.deletedAt)}><Icon name="plus"/></button>}/>
+     {!snapshot.accounts.some((item) => !item.isArchived && !item.deletedAt) && <p className="hint"><a href="#accounts">{t.newAccount}</a></p>}
+-    <Field label={t.search}><input type="search" value={filters.search} onChange={(event) => change('search', event.target.value)} /></Field>
+-    <details className="card filters"><summary>{t.filters}{Object.values(filters).some(Boolean) ? ' •' : ''}</summary><div className="form-grid">
++    <Field label={t.search}><input type="search" placeholder={t.search} value={filters.search} onChange={(event) => change('search', event.target.value)} /></Field>
++    <details className="card filters"><summary><Icon name="filter" size={18}/>{t.filters}{Object.values(filters).some(Boolean) ? ' •' : ''}</summary><div className="form-grid">
+       <Field label={t.from}><input type="date" value={filters.from} onChange={(event) => change('from', event.target.value)} /></Field><Field label={t.to}><input type="date" value={filters.to} onChange={(event) => change('to', event.target.value)} /></Field>
+       <Field label={t.account}><select value={filters.account} onChange={(event) => change('account', event.target.value)}><option value="">{t.all}</option>{snapshot.accounts.filter((item) => !item.deletedAt).map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></Field>
+       <Field label={t.category}><select value={filters.category} onChange={(event) => change('category', event.target.value)}><option value="">{t.all}</option>{snapshot.categories.filter((item) => !item.deletedAt).map((item) => <option key={item.id} value={item.id}>{categoryLabel(item, snapshot.categories, language)}</option>)}</select></Field>
+@@ -80,21 +82,16 @@ export function Transactions(props: FeatureProps) {
+ }
+ 
+ function TransactionRows({ rows, onEdit, onDelete, onCopy, members, ...props }: FeatureProps & { rows: Transaction[]; onEdit: (item: Transaction) => void; onDelete: (item: Transaction) => void; onCopy: (item: Transaction) => void; members: Member[] }) {
+-  const { snapshot, t, language, locale, busy, moneyDisplay } = props;
+-  return <div className="transaction-list">{rows.map((transaction) => {
+-    const account = snapshot.accounts.find((item) => item.id === transaction.accountId);
+-    const category = snapshot.categories.find((item) => item.id === transaction.categoryId);
+-    const splits = snapshot.splits.filter((item) => !item.deletedAt && item.transactionId === transaction.id);
+-    const link = snapshot.transferLinks.find((item) => !item.deletedAt && item.debitTransactionId === transaction.id);
+-    const credit = link && snapshot.transactions.find((item) => item.id === link.creditTransactionId);
+-    const target = credit && snapshot.accounts.find((item) => item.id === credit.accountId);
+-    return <article className="card transaction-row" key={transaction.id}><div className="transaction-main"><h3>{transaction.description ?? t[transaction.transactionType]}</h3><p className="muted">{displayDate(transaction.transactionDate, locale)} · {account?.name}{target ? ` → ${target.name}` : ''} · {t[transaction.transactionType]}</p>
+-      <p className="muted">{category ? categoryLabel(category, snapshot.categories, language) : splits.length ? splits.map((split) => snapshot.categories.find((item) => item.id === split.categoryId)?.names[language]).join(' + ') : transaction.transactionType === 'transfer' ? t.transfer : t.noCategory} · {members.find((item) => item.id === transaction.memberId)?.displayName ?? ''}</p>
+-      {transaction.notes && <details><summary>{t.notes}</summary><p className="pre-wrap">{transaction.notes}</p></details>}
+-      {transaction.fxSnapshot && <details><summary>{t.rate}: {transaction.fxSnapshot.rateDecimal}</summary><p>{transaction.fxSnapshot.provider} · {t.requestedDate}: {transaction.fxSnapshot.requestedDate} · {t.effectiveDate}: {transaction.fxSnapshot.effectiveDate}</p></details>}
+-    </div><div className="transaction-amount"><span className={BigInt(transaction.originalAmount.amountMinor) < 0n ? 'negative' : 'positive'}><Amount value={link ? link.sentAmount : transaction.originalAmount} locale={locale} display={moneyDisplay} /></span>
+-      {transaction.reportingAmount && transaction.reportingAmount.currency !== transaction.originalAmount.currency && <small>{t.reportingAmount}: <Amount value={transaction.reportingAmount} locale={locale} display={moneyDisplay} /></small>}
+-      {(transaction.status !== 'confirmed' || transaction.transactionDate > today()) && <span className="status">{t[transaction.transactionDate > today() ? 'planned' : transaction.status]}</span>}
+-    </div><div className="row-actions">{(['income', 'expense'] as string[]).includes(transaction.transactionType) && <button disabled={busy} onClick={() => onEdit(transaction)}>{t.edit}</button>}{transaction.transactionType !== 'transfer' && <button disabled={busy} onClick={() => onCopy(transaction)}>{t.copy}</button>}<button disabled={busy} className="danger" onClick={() => onDelete(transaction)}>{t.delete}</button>{transaction.transactionType === 'transfer' && <small className="hint">{t.transferEditHint}</small>}</div></article>;
+-  })}</div>;
++  const { snapshot,t,language,locale,busy,moneyDisplay }=props;
++  const [selected,setSelected]=useState<Transaction|null>(null);
++  const groups=[...new Set(rows.map(r=>r.transactionDate))];
++  const details=(transaction:Transaction)=>{
++    const account=snapshot.accounts.find(a=>a.id===transaction.accountId),category=snapshot.categories.find(c=>c.id===transaction.categoryId);
++    const link=snapshot.transferLinks.find(l=>!l.deletedAt&&l.debitTransactionId===transaction.id),credit=link&&snapshot.transactions.find(t=>t.id===link.creditTransactionId),target=credit&&snapshot.accounts.find(a=>a.id===credit.accountId);
++    const splits=snapshot.splits.filter(s=>!s.deletedAt&&s.transactionId===transaction.id);
++    return {account,category,link,target,splits};
++  };
++  return <div className="transaction-list">{groups.map(date=><section className="transaction-day" key={date}><h3>{date===today()?ui(language,'now'):displayDate(date,locale)}</h3>{rows.filter(r=>r.transactionDate===date).map(tx=>{const d=details(tx);return <button className="transaction-item" key={tx.id} onClick={()=>setSelected(tx)}>{d.category?<CategoryBadge category={d.category}/>:<span className="tile-icon blue"><Icon name={tx.transactionType==='transfer'?'transfer':'receipt'}/></span>}<span className="transaction-item-text"><strong>{tx.description??d.category?.names[language]??t[tx.transactionType]}</strong><small>{d.account?.name}{d.target?` → ${d.target.name}`:d.category?` · ${d.category.names[language]}`:d.splits.length?` · ${t.split}`:''}</small></span><span className={`transaction-item-amount ${tx.transactionType==='transfer'?'neutral':BigInt(tx.originalAmount.amountMinor)>0?'positive':''}`}><Amount value={d.link?d.link.sentAmount:tx.originalAmount} locale={locale} display={moneyDisplay}/>{tx.status!=='confirmed'&&<small>{t[tx.status]}</small>}</span></button>})}</section>)}
++    {selected&&(()=>{const d=details(selected);return <Dialog title={t[ selected.transactionType ]} onClose={()=>setSelected(null)} t={t}><div className="transaction-detail-hero">{d.category&&<CategoryBadge category={d.category}/>}<h2>{selected.description??d.category?.names[language]??t[selected.transactionType]}</h2><div className={BigInt(selected.originalAmount.amountMinor)<0n?'negative':'positive'}><Amount value={selected.originalAmount} locale={locale} display={moneyDisplay}/></div></div><dl className="detail-list"><dt>{t.date}</dt><dd>{displayDate(selected.transactionDate,locale)}</dd><dt>{t.account}</dt><dd>{d.account?.name}</dd>{d.target&&<><dt>{t.destination}</dt><dd>{d.target.name}</dd></>}<dt>{t.category}</dt><dd>{d.category?categoryLabel(d.category,snapshot.categories,language):d.splits.length?t.split:t.noCategory}</dd><dt>{t.member}</dt><dd>{members.find(m=>m.id===selected.memberId)?.displayName??snapshot.member.displayName}</dd><dt>{t.source}</dt><dd>{t[selected.source==='recurring'?'recurring':selected.source]}</dd><dt>{t.type}</dt><dd>{t[selected.status]}</dd>{selected.reportingAmount&&selected.reportingAmount.currency!==selected.originalAmount.currency&&<><dt>{t.reportingAmount}</dt><dd><Amount value={selected.reportingAmount} locale={locale} display={moneyDisplay}/></dd></>}</dl>{d.splits.map(split=><div className="account-summary" key={split.id}><span>{snapshot.categories.find(c=>c.id===split.categoryId)?.names[language]}</span><Amount value={split.amount} locale={locale} display={moneyDisplay}/></div>)}{selected.notes&&<div className="card"><h3>{t.notes}</h3><p className="pre-wrap">{selected.notes}</p></div>}{selected.fxSnapshot&&<details className="entry-options"><summary>{t.rate}: {selected.fxSnapshot.rateDecimal}</summary><p className="hint">{selected.fxSnapshot.provider} · {t.requestedDate}: {selected.fxSnapshot.requestedDate} · {t.effectiveDate}: {selected.fxSnapshot.effectiveDate}</p></details>}<div className="actions">{['income','expense'].includes(selected.transactionType)&&<button className="primary" disabled={busy} onClick={()=>{onEdit(selected);setSelected(null)}}>{t.edit}</button>}{selected.transactionType!=='transfer'&&<button disabled={busy} onClick={()=>{onCopy(selected);setSelected(null)}}>{t.copy}</button>}<button className="danger" disabled={busy} onClick={()=>{onDelete(selected);setSelected(null)}}>{t.delete}</button></div>{selected.transactionType==='transfer'&&<p className="hint">{t.transferEditHint}</p>}</Dialog>})()}
++  </div>;
+ }
+diff --git a/apps/web/src/preferences.ts b/apps/web/src/preferences.ts
+index 03d24ea0637f506434118d0507adb16460369b7a..1059fcabecadba515e434bcb79115e3a405fa4e9 100644
+--- a/apps/web/src/preferences.ts
++++ b/apps/web/src/preferences.ts
+@@ -10,7 +10,7 @@ export function usePreferences() {
+   const [language, changeLanguage] = useState<Language>(() => { const value = json('language'); return typeof value === 'string' && Object.hasOwn(languages, value) ? value as Language : 'ru'; });
+   const [themeId, changeTheme] = useState<ThemeId>(() => { const value = json('theme'); return themes.find((item) => item.id === value)?.id ?? 'wealth'; });
+   const [scope, changeScope] = useState<'personal' | 'household'>(() => json('scope') === 'household' ? 'household' : 'personal');
+-  const [moneyDisplay, changeDisplay] = useState<'code' | 'symbol'>(() => json('moneyDisplay') === 'symbol' ? 'symbol' : 'code');
++  const [moneyDisplay, changeDisplay] = useState<'code' | 'symbol'>(() => json('moneyDisplay') === 'code' ? 'code' : 'symbol');
+   const [fontSize, changeFont] = useState<'normal' | 'large' | 'extraLarge'>(() => { const value = json('fontSize'); return value === 'large' || value === 'extraLarge' ? value : 'normal'; });
+   const [enabledCurrencies, changeCurrencies] = useState<MoneyCurrencyCode[]>(() => { const value = json('currencies'); return Array.isArray(value) ? value.filter((item): item is MoneyCurrencyCode => typeof item === 'string' && Object.hasOwn(currencyMetadata, item)) : ['GEL', 'USD', 'EUR', 'UAH']; });
+   return { language, themeId, scope, moneyDisplay, fontSize, enabledCurrencies,
+diff --git a/apps/web/src/styles.css b/apps/web/src/styles.css
+index a470d813f72a667c47b757259aa6c865a7eebd28..7c35118c8d4448a9697cd2529203467906551db7 100644
+--- a/apps/web/src/styles.css
++++ b/apps/web/src/styles.css
+@@ -1,242 +1,6 @@
+-* { box-sizing: border-box; }
+-body { margin: 0; font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; line-height: 1.5; }
+-button, input, select, textarea { font: inherit; }
+-button, .button { min-height: 2.75rem; border: 1px solid var(--border); border-radius: .75rem; padding: .55rem 1rem; background: var(--surface); color: var(--text); cursor: pointer; text-decoration: none; display: inline-flex; align-items: center; justify-content: center; gap: .4rem; font-weight: 650; }
+-button:hover, .button:hover { border-color: var(--primary); }
+-button:disabled { cursor: wait; opacity: .6; }
+-button.primary, .button.primary { color: var(--on-primary); background: var(--primary); border-color: var(--primary); }
+-button.danger { color: var(--danger); }
+-button.icon-button { font-size: 1.75rem; width: 2.75rem; padding: 0; }
+-button.full-width { width: 100%; }
+-a { color: var(--text); text-decoration-color: var(--primary); text-underline-offset: .2em; }
+-:focus-visible { outline: 3px solid var(--primary); outline-offset: 3px; }
+-input, select, textarea { border: 1px solid var(--border); border-radius: .65rem; width: 100%; min-width: 0; padding: .6rem .7rem; background: var(--surface); color: var(--text); min-height: 2.75rem; }
+-input[type='checkbox'] { width: 1.3rem; min-height: 1.3rem; height: 1.3rem; accent-color: var(--primary); flex: 0 0 auto; }
+-input[type='color'] { padding: .2rem; }
+-textarea { resize: vertical; }
+-h1, h2, h3, p { margin-top: 0; }
+-h1 { font-size: clamp(1.8rem, 3vw, 2.25rem); line-height: 1.2; letter-spacing: -.035em; margin-bottom: 1.2rem; }
+-h2 { font-size: 1.18rem; line-height: 1.3; margin-bottom: .75rem; }
+-h3 { font-size: 1rem; line-height: 1.3; margin-bottom: .4rem; }
+-p { margin-bottom: .8rem; }
+-small, .hint { font-size: .84rem; }
+-.hint, .muted { color: var(--muted); }
+-.pre-wrap { white-space: pre-wrap; overflow-wrap: anywhere; }
+-.positive { color: var(--positive); }
+-.negative, .error { color: var(--danger); }
+-.error { font-weight: 600; margin: .8rem 0; overflow-wrap: anywhere; }
+-.app { color: var(--text); background: var(--background); min-height: 100vh; }
+-.app-shell { display: grid; grid-template-columns: 15.5rem minmax(0, 1fr); min-height: 100vh; }
+-.sidebar { border-right: 1px solid var(--border); background: var(--surface); padding: 1.75rem 1.1rem; display: flex; flex-direction: column; gap: 2.2rem; position: sticky; height: 100vh; top: 0; overflow-y: auto; }
+-.brand { display: flex; gap: .75rem; align-items: center; color: var(--text); text-decoration: none; font-weight: 850; font-size: 1.3rem; letter-spacing: -.025em; }
+-.brand > span { background: var(--primary); color: var(--on-primary); border-radius: .85rem; width: 2.75rem; height: 2.75rem; display: grid; place-items: center; font-size: 1.7rem; }
+-.brand small { font-size: .62rem; font-weight: 550; display: block; letter-spacing: 0; color: var(--muted); }
+-.sidebar nav { display: flex; flex-direction: column; gap: .35rem; }
+-.sidebar nav a { display: flex; align-items: center; gap: .8rem; padding: .75rem .8rem; min-height: 2.75rem; border-radius: .8rem; color: var(--muted); text-decoration: none; font-weight: 650; }
+-.sidebar nav a span { font-size: 1.2rem; width: 1.3rem; text-align: center; }
+-.sidebar nav a.current { background: var(--primary); color: var(--on-primary); }
+-.sidebar nav a:hover { box-shadow: inset 0 0 0 1px var(--primary); }
+-.sidebar-footer { margin-top: auto; display: flex; flex-direction: column; gap: .65rem; font-size: .8rem; }
+-.sidebar-footer p { overflow-wrap: anywhere; margin-bottom: 0; }
+-.sidebar-footer small { color: var(--muted); }
+-.workspace { min-width: 0; }
+-.workspace-header { display: flex; align-items: end; gap: 1rem; justify-content: flex-end; padding: 1rem clamp(1rem, 4vw, 3.5rem); border-bottom: 1px solid var(--border); background: var(--surface); }
+-.workspace-header .field { width: min(100%, 21rem); margin-bottom: 0; }
+-.workspace main { max-width: 92rem; margin: 0 auto; padding: 2.25rem clamp(1rem, 4vw, 3.5rem) 4rem; }
+-.field { display: flex; flex-direction: column; gap: .35rem; margin: .8rem 0 1rem; font-size: .88rem; min-width: 0; }
+-.field > span { font-weight: 650; }
+-.form-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); column-gap: 1rem; }
+-.compact-controls { max-width: 36rem; }
+-.check { min-height: 2.75rem; display: inline-flex; align-items: center; gap: .55rem; font-size: .88rem; cursor: pointer; padding: .3rem 0; }
+-.choices { display: flex; flex-wrap: wrap; gap: .4rem 1rem; }
+-fieldset { border: 1px solid var(--border); border-radius: .75rem; padding: .5rem 1rem 1rem; margin: 1rem 0; min-width: 0; }
+-legend { font-weight: 650; font-size: .88rem; padding: 0 .35rem; }
+-.card { border: 1px solid var(--border); border-radius: 1.1rem; background: var(--surface); padding: 1.5rem; margin-bottom: 1.3rem; box-shadow: 0 .15rem .8rem color-mix(in srgb, var(--text) 3%, transparent); min-width: 0; }
+-.card-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 21rem), 1fr)); gap: 1rem; margin-top: .75rem; }
+-.card-grid .card { margin-bottom: 0; }
+-.section-heading { display: flex; gap: 1rem; justify-content: space-between; align-items: center; margin-bottom: 1rem; }
+-.section-heading h1, .section-heading h2, .section-heading p { margin-bottom: 0; }
+-.section-heading .field { margin: 0; }
+-.overview-scope { display: flex; align-items: center; gap: .65rem 1rem; flex-wrap: wrap; margin-bottom: 1.5rem; font-size: .88rem; }
+-.overview-scope > span { font-weight: 650; }
+-.overview-scope .hint { margin: 0; }
+-.segmented-control, .chart-view-switch { display: inline-flex; align-items: center; flex-wrap: wrap; gap: .2rem; padding: .2rem; border: 1px solid var(--border); border-radius: .85rem; background: var(--background); max-width: 100%; }
+-.segmented-control button, .chart-view-switch button { background: transparent; border-color: transparent; box-shadow: none; }
+-.segmented-control button[aria-pressed='true'], .chart-view-switch button[aria-pressed='true'] { color: var(--on-primary); background: var(--primary); border-color: var(--primary); }
+-.chart-view-switch { flex: 0 1 auto; }
+-.chart-view-switch button { width: 2.75rem; padding: .5rem; }
+-.chart-view-switch svg { width: 1.25rem; height: 1.25rem; display: block; }
+-.overview-group { border: 1px solid var(--border); border-radius: 1.25rem; padding: 1rem; margin-bottom: 2rem; background: color-mix(in srgb, var(--surface) 50%, var(--background)); }
+-.overview-group-header { padding: .5rem .5rem 1rem; }
+-.overview-group-header h2 { margin-bottom: .35rem; font-size: 1.3rem; }
+-.overview-group-header > .hint, .overview-group-header .section-heading .hint { margin-bottom: 0; }
+-.overview-widget-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1rem; align-items: start; }
+-.overview-widget-grid > .card { margin-bottom: 0; }
+-.overview-group > .card { margin-top: 1rem; margin-bottom: 0; }
+-.overview-widget-grid h3 { font-size: 1.12rem; }
+-.overview-widget-grid .section-heading { flex-wrap: wrap; }
+-.report-period-controls { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: .75rem; margin: 1rem 0; }
+-.report-period-controls .field { margin: 0; min-width: 12rem; }
+-.report-context { display: flex; flex-wrap: wrap; align-items: baseline; gap: .35rem 1rem; padding: .75rem 1rem; background: var(--surface); border: 1px solid var(--border); border-radius: .75rem; }
+-.report-context strong { font-size: 1.1rem; }
+-.report-context > span, .widget-context { color: var(--muted); font-size: .82rem; }
+-.widget-context { margin: .35rem 0 .75rem; font-weight: 500; }
+-.section-heading .widget-context { margin-top: .35rem; }
+-.report-options { display: flex; align-items: center; flex-wrap: wrap; gap: .4rem 1.5rem; margin: .75rem 0 0; }
+-.report-options .field { margin: 0; width: 8rem; }
+-.overview-snapshot .overview-group-header .field { min-width: 12rem; }
+-.forecast-category-heading { margin-top: 1.25rem; }
+-.eyebrow { color: var(--muted); font-size: .84rem; font-weight: 600; margin-bottom: .5rem !important; }
+-.actions, .row-actions { display: flex; gap: .65rem; flex-wrap: wrap; margin: 1.1rem 0; }
+-.notice { background: var(--surface); border: 1px solid var(--border); border-left: 4px solid var(--primary); border-radius: .75rem; padding: .8rem 1.1rem; margin-bottom: 1.2rem; display: flex; gap: .8rem; align-items: center; flex-wrap: wrap; }
+-.notice p { margin: 0; }
+-.empty { padding: 2rem 1rem; color: var(--muted); text-align: center; }
+-.money { font-variant-numeric: tabular-nums; font-weight: 700; overflow-wrap: anywhere; }
+-.balance-stack { display: flex; flex-direction: column; gap: .2rem; margin: .8rem 0; }
+-.balance-stack > .money { font-size: 1.2rem; }
+-.balance-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 14rem), 1fr)); gap: .8rem; }
+-.balance-tile { background: var(--background); border: 1px solid var(--border); border-radius: .85rem; padding: 1rem; display: flex; flex-direction: column; gap: .4rem; }
+-.balance-tile small { color: var(--muted); font-weight: 650; }
+-.balance-tile .money { font-size: 1.6rem; letter-spacing: -.035em; }
+-.account-summary { padding: .8rem 0; border-bottom: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between; gap: 1rem; }
+-.account-summary:last-child { border-bottom: 0; }
+-.account-summary .balance-stack { margin: 0; text-align: end; }
+-.account-summary p { margin-bottom: 0; }
+-.table-wrap { overflow-x: auto; margin-top: 1rem; }
+-table { border-collapse: collapse; text-align: start; width: 100%; }
+-th, td { text-align: start; padding: .8rem .6rem; border-bottom: 1px solid var(--border); font-size: .85rem; }
+-th { color: var(--muted); font-weight: 650; }
+-.rollup-row { padding: .6rem 0; }
+-.currency-category-group { padding: .75rem 0; }
+-.category-breakdown summary { padding: 0; }
+-.category-breakdown .rollup-row { display: inline-block; width: calc(100% - 1.2rem); vertical-align: middle; }
+-.category-child { margin: .5rem 0 .5rem 1.4rem; font-size: .85rem; padding: .5rem; border-left: 2px solid var(--border); }
+-.category-donut { width: 13rem; height: 13rem; margin: 1rem auto; border-radius: 50%; display: grid; place-items: center; }
+-.category-donut > div { background: var(--surface); width: 9rem; height: 9rem; border-radius: 50%; display: grid; place-items: center; text-align: center; font-size: .85rem; padding: .5rem; }
+-.category-stacked { display: flex; height: 2rem; width: 100%; border-radius: .5rem; overflow: hidden; margin: 1rem 0; }
+-.category-stacked span { height: 100%; }
+-.category-treemap { display: flex; width: 100%; height: 9rem; border-radius: .5rem; overflow: hidden; gap: 2px; margin: 1rem 0; }
+-.rate-tile { border: 1px solid var(--border); border-radius: .7rem; padding: .8rem; font-size: .88rem; }
+-.rate-tile .hint { margin: .5rem 0 0; }
+-.rollup-row .section-heading { font-size: .9rem; margin-bottom: .3rem; }
+-.bar-track { height: .35rem; border-radius: 1rem; background: var(--background); overflow: hidden; }
+-.bar-track > div { height: 100%; border-radius: 1rem; background: var(--primary); }
+-.category-card { display: flex; align-items: center; gap: .8rem; }
+-.category-card > div { flex: 1; min-width: 0; }
+-.category-card h2 { overflow-wrap: anywhere; }
+-.category-card p { margin-bottom: 0; }
+-.category-badge { display: inline-grid; place-items: center; width: 2.75rem; height: 2.75rem; border-radius: .8rem; font-size: 1.3rem; flex: 0 0 auto; }
+-.category-icon { display: block; width: 1.55rem; height: 1.55rem; flex: 0 0 auto; }
+-.category-appearance-preview { display: flex; align-items: center; gap: .75rem; font-weight: 650; }
+-.category-icon-group + .category-icon-group { margin-top: 1rem; }
+-.category-icon-group h3 { color: var(--muted); font-size: .85rem; }
+-.category-icon-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(3.25rem, 1fr)); gap: .4rem; }
+-.category-icon-grid button { padding: .3rem; position: relative; min-height: 3.25rem; }
+-.category-icon-grid button[aria-pressed='true'] { border-color: var(--primary); box-shadow: inset 0 0 0 2px var(--primary); }
+-.category-icon-tile { display: grid; place-items: center; width: 2.5rem; height: 2.5rem; border-radius: .55rem; }
+-.category-icon-selected { position: absolute; right: -.15rem; top: -.15rem; border-radius: 50%; width: 1.2rem; height: 1.2rem; display: grid; place-items: center; background: var(--primary); color: var(--on-primary); font-size: .75rem; }
+-.category-legend { display: inline-flex; align-items: center; gap: .5rem; }
+-.category-swatch { width: .75rem; height: .75rem; border-radius: .2rem; flex: 0 0 auto; }
+-.merge-panel { border-top: 1px solid var(--border); padding-top: 1rem; margin-top: 1rem; }
+-.recurring-payment-name { display: flex; align-items: center; gap: .75rem; min-width: 0; }
+-.recurring-payment-name h2 { overflow-wrap: anywhere; }
+-.recurring-payment-name .hint { margin: .3rem 0 0; }
+-.recurring-payment-card .section-heading { align-items: start; flex-wrap: wrap; }
+-.recurring-payment-amount { font-size: 1.6rem; margin: .8rem 0 .4rem; }
+-.recurring-payment-card .row-actions { margin-bottom: 0; }
+-.recurring-upcoming { margin-top: 1.5rem; }
+-.recurrence-presets { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .5rem; margin-bottom: 1rem; }
+-.recurrence-presets button { min-height: 3.25rem; }
+-.recurrence-presets button[aria-pressed='true'] { color: var(--on-primary); background: var(--primary); border-color: var(--primary); }
+-.recurring-preview { padding: 1rem; border: 1px solid var(--border); border-radius: .85rem; margin: 1rem 0; background: var(--background); }
+-.recurring-preview .section-heading { margin-bottom: .5rem; flex-wrap: wrap; }
+-.recurring-preview .section-heading strong { overflow-wrap: anywhere; }
+-.recurring-preview-dates { display: flex; flex-wrap: wrap; gap: .5rem; margin: .6rem 0 .8rem; }
+-.recurring-preview-dates span { padding: .35rem .6rem; border: 1px solid var(--border); border-radius: .55rem; background: var(--surface); font-size: .85rem; }
+-.recurring-preview p:last-child { margin-bottom: 0; }
+-.recurring-options { margin: .5rem 0; }
+-summary { cursor: pointer; font-weight: 650; min-height: 2.75rem; padding-top: .5rem; }
+-.filters { padding-top: .7rem; padding-bottom: .7rem; }
+-.filters summary { margin-bottom: .5rem; }
+-.transaction-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(10rem, auto); column-gap: 1rem; padding: 1.2rem; }
+-.transaction-main h3, .transaction-main p { overflow-wrap: anywhere; }
+-.transaction-main p { font-size: .82rem; margin-bottom: .4rem; }
+-.transaction-main details { font-size: .82rem; }
+-.transaction-main summary { min-height: 1.8rem; }
+-.transaction-amount { display: flex; align-items: end; flex-direction: column; gap: .4rem; font-size: 1.1rem; }
+-.transaction-amount small { font-size: .7rem; text-align: end; }
+-.status { display: inline-flex; background: var(--background); border: 1px solid var(--border); border-radius: .5rem; padding: .15rem .5rem; color: var(--muted); font-size: .7rem; }
+-.row-actions { grid-column: 1 / -1; margin: .7rem 0 0; }
+-.row-actions button { font-size: .78rem; min-height: 2.75rem; }
+-.row-actions .hint { align-self: center; flex: 1 1 10rem; }
+-dialog { width: min(40rem, calc(100% - 2rem)); max-height: calc(100dvh - 2rem); color: var(--text); background: var(--surface); border: 1px solid var(--border); border-radius: 1.2rem; padding: 1.4rem; overflow-y: auto; box-shadow: 0 1rem 4rem color-mix(in srgb, var(--text) 20%, transparent); }
+-dialog::backdrop { background: color-mix(in srgb, var(--text) 45%, transparent); }
+-.dialog-header { display: flex; gap: 1rem; justify-content: space-between; align-items: center; }
+-.dialog-header h2 { margin: 0; }
+-.split-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto; gap: .5rem; align-items: center; }
+-.theme-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(10rem, 1fr)); gap: .6rem; }
+-.theme-grid button { justify-content: flex-start; font-size: .82rem; }
+-.theme-dot { width: 1rem; height: 1rem; border-radius: 50%; display: inline-block; border: 1px solid var(--border); }
+-.theme-grid .selected-theme { border: 2px solid var(--primary); }
+-.backup-preview { margin-top: 1rem; border-top: 1px solid var(--border); padding-top: 1rem; }
+-dl { display: grid; grid-template-columns: minmax(0, 1fr) auto; font-size: .9rem; }
+-dt, dd { margin: .3rem 0; }
+-.fx-result { background: var(--background); border: 1px solid var(--border); padding: 1rem; margin-top: 1rem; border-radius: .8rem; }
+-.fx-result > .money { font-size: 1.75rem; }
+-.fx-result p { margin-top: .6rem; }
+-.rate-chart { width: 100%; height: auto; display: block; margin: 1.5rem 0; color: var(--primary); overflow: visible; }
+-.rate-chart text { fill: var(--muted); font-size: 12px; }
+-.welcome-header { display: flex; align-items: center; justify-content: space-between; max-width: 76rem; padding: 1.3rem 2rem; margin: 0 auto; gap: 1rem; }
+-.welcome-header .field { margin: 0; width: min(14rem, 50%); }
+-.welcome-main { max-width: 76rem; padding: 3rem 2rem 5rem; margin: 0 auto; }
+-.auth-layout { display: grid; grid-template-columns: minmax(0, 1fr) minmax(19rem, .8fr); gap: 4rem; align-items: center; min-height: 60vh; }
+-.auth-intro h1 { font-size: clamp(2.5rem, 5vw, 4.2rem); max-width: 8em; margin-top: 1.5rem; }
+-.hero-mark { font-size: 3rem; color: var(--on-primary); background: var(--primary); border-radius: 1.5rem; width: 5rem; height: 5rem; display: grid; place-items: center; }
+-.hero-tagline { font-size: 1.4rem; font-weight: 600; }
+-.auth-intro > p:last-child { color: var(--muted); font-size: 1rem; max-width: 27rem; }
+-.auth-card { padding: 2rem; }
+-.mode-switch { display: flex; gap: .5rem; flex-wrap: wrap; margin-bottom: 1.5rem; }
+-.mode-switch button { flex: 1; font-size: .88rem; }
+-@media (max-width: 1050px) {
+-  .overview-widget-grid { grid-template-columns: minmax(0, 1fr); }
+-  .app-shell { grid-template-columns: 12rem minmax(0, 1fr); }
+-  .sidebar { padding: 1.4rem .8rem; }
+-  .sidebar nav a { font-size: .84rem; padding: .65rem .5rem; gap: .45rem; }
+-}
+-@media (max-width: 760px) {
+-  .app-shell { display: block; }
+-  .sidebar { position: static; height: auto; border-right: 0; border-bottom: 1px solid var(--border); padding: .7rem 1rem; gap: .75rem; overflow: visible; }
+-  .sidebar > .brand { font-size: 1.1rem; }
+-  .sidebar .brand > span { width: 2rem; height: 2rem; font-size: 1.4rem; }
+-  .sidebar nav { flex-direction: row; gap: .4rem; overflow-x: auto; padding: .25rem 0 .45rem; }
+-  .sidebar nav a { flex: 0 0 auto; font-size: .8rem; }
+-  .sidebar-footer { flex-direction: row; flex-wrap: wrap; align-items: center; gap: .5rem; margin: 0; }
+-  .sidebar-footer p { margin-right: auto; }
+-  .sidebar-footer button { font-size: .75rem; min-height: 2.75rem; }
+-  .sidebar-footer small { display: none; }
+-  .workspace-header { padding: .8rem 1rem; }
+-  .workspace main { padding-top: 1.4rem; }
+-  .section-heading { flex-wrap: wrap; }
+-  .card { padding: 1rem; }
+-  .auth-layout { grid-template-columns: minmax(0, 1fr); gap: 1.5rem; min-height: auto; }
+-  .welcome-main { padding: 1.5rem 1rem 3rem; }
+-  .welcome-header { padding: 1rem; }
+-  .auth-intro h1 { font-size: 2.6rem; max-width: none; }
+-  .auth-intro .hero-mark { display: none; }
+-  .auth-card { padding: 1.3rem; }
+-}
+-@media (max-width: 480px) {
+-  .overview-group { padding: .6rem; }
+-  .report-period-controls .field, .overview-snapshot .overview-group-header .field { width: 100%; }
+-  .report-period-controls .segmented-control { width: 100%; }
+-  .report-period-controls .segmented-control button { flex: 1; padding-inline: .4rem; min-width: 0; font-size: .82rem; }
+-  .form-grid { grid-template-columns: minmax(0, 1fr); }
+-  .transaction-row { grid-template-columns: minmax(0, 1fr); }
+-  .transaction-amount { align-items: start; margin-top: .5rem; }
+-  .transaction-amount small { text-align: start; }
+-  .category-card { flex-wrap: wrap; }
+-  .split-row { grid-template-columns: minmax(0, 1fr) auto; }
+-  .split-row .field:first-child { grid-column: 1 / -1; margin-bottom: 0; }
+-  dialog { padding: 1rem; }
+-}
+-@media (prefers-reduced-motion: reduce) { *, *::before, *::after { scroll-behavior: auto !important; } }
++@import url('https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap');
++*{box-sizing:border-box}html{font-size:16px;scroll-behavior:smooth}body{margin:0;background:#0b1013;font-family:'Manrope',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;-webkit-font-smoothing:antialiased}button,input,select,textarea{font:inherit}button,a,input,select,textarea{-webkit-tap-highlight-color:transparent}button,a{touch-action:manipulation}button{cursor:pointer}button:disabled{cursor:default;opacity:.42}button:focus-visible,a:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-visible,summary:focus-visible{outline:2px solid var(--primary);outline-offset:4px}a{color:inherit;text-decoration:none}button{color:var(--text);background:var(--surface);border:1px solid var(--border);border-radius:12px;min-height:44px;padding:10px 16px;font-size:.8125rem;font-weight:600}button svg,a svg{flex-shrink:0}button.primary,.button.primary{background:var(--primary);color:var(--on-primary);border-color:transparent}.primary:hover{filter:brightness(1.05)}button.danger{color:var(--danger);background:transparent;border-color:color-mix(in srgb,var(--danger) 28%,transparent)}button:hover:not(:disabled){border-color:color-mix(in srgb,var(--primary) 45%,transparent)}.button{display:inline-flex;min-height:44px;align-items:center;justify-content:center;gap:8px;border:1px solid var(--border);border-radius:12px;padding:10px 16px;font-size:.8125rem;font-weight:600}h1,h2,h3,p{margin:0}h1{font-size:1.85rem;font-weight:700;line-height:1.2;letter-spacing:-1.2px}h2{font-size:1rem;font-weight:650;line-height:1.45;letter-spacing:-.3px}h3{font-size:.875rem;line-height:1.5}p{line-height:1.65}small{font-size:.72rem}.app{background:var(--background);color:var(--text);min-height:100dvh;max-width:520px;margin:0 auto;box-shadow:0 0 80px #0002;isolation:isolate;color-scheme:dark}.app-shell{min-height:100dvh}.app-header{display:flex;align-items:center;gap:12px;padding:22px 24px 14px}.brand{display:inline-flex;align-items:center;gap:9px;font-weight:800;font-size:1.65rem;letter-spacing:-1.3px}.brand-symbol{height:29px;width:29px;border-radius:9px;background:var(--primary);color:var(--on-primary);display:grid;place-items:center}.brand-period{color:var(--primary)}.space-selector{margin-left:auto;display:flex;align-items:center;gap:2px;max-width:44%}.space-selector select{border:0;background:none;padding:5px 4px;min-height:32px;color:var(--muted);width:100%;font-size:.72rem;appearance:none}.avatar{border-radius:50%;width:34px;height:34px;border:1px solid var(--border);display:grid;place-items:center;color:var(--primary);background:var(--surface);font-weight:600;font-size:.75rem;flex-shrink:0}.demo-label{display:flex;gap:6px;align-items:center;justify-content:flex-end;color:var(--muted);font-size:.58rem;letter-spacing:.3px;padding:0 24px;opacity:.8;height:17px}.demo-label>span{width:4px;height:4px;background:var(--primary);border-radius:50%}#main-content{padding:12px 24px 166px;min-width:0}.feature-page{animation:appear .2s ease-out}.page-heading{display:flex;justify-content:space-between;align-items:center;gap:16px;margin:10px 0 24px}.page-heading .eyebrow{font-size:.65rem;letter-spacing:.5px;font-weight:400;color:var(--muted);margin-bottom:9px}.eyebrow{text-transform:none;letter-spacing:1.4px;font-size:.64rem;color:var(--muted)}.page-heading h1{max-width:360px}.icon-button{height:36px;width:36px;min-height:36px;padding:0;display:inline-grid;place-items:center;border:0;background:transparent;border-radius:50%;flex-shrink:0}.icon-button.outlined{width:44px;height:44px;min-height:44px;border:1px solid var(--border);background:var(--surface)}.section-heading{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:15px}.section-heading h1{font-size:1.8rem}.section-heading h2{font-size:.9rem}.section-heading h3{font-size:.875rem}.section-heading>svg{color:var(--muted)}.muted,.hint{color:var(--muted)}.hint{font-size:.73rem;line-height:1.6;margin:8px 0}.positive{color:var(--positive)!important}.negative{color:var(--danger)!important}.money{font-variant-numeric:tabular-nums;white-space:nowrap;font-feature-settings:'tnum';letter-spacing:-.35px}.neutral{color:var(--muted)}.balance-hero{position:relative;overflow:hidden;background:var(--primary);color:var(--on-primary);border-radius:24px;padding:17px 22px 21px;isolation:isolate}.balance-hero:after{content:'';position:absolute;width:240px;height:240px;border:1px solid currentColor;opacity:.1;top:-110px;right:-125px;border-radius:50%;z-index:-1;box-shadow:0 0 0 27px #00000008,0 0 0 60px #00000004}.balance-hero-top{display:flex;align-items:center;gap:7px;font-size:.76rem;font-weight:500}.balance-hero-top .icon-button{width:30px;height:30px;min-height:30px;color:inherit;opacity:.6}.hero-amount{font-size:2.65rem;font-weight:600;letter-spacing:-2px;line-height:1.3;padding:9px 0 22px;overflow-wrap:anywhere}.hero-amount .money{white-space:normal;letter-spacing:-1.8px}.balance-hero-bottom{display:flex;align-items:center;justify-content:space-between;font-size:.65rem;font-weight:500;gap:8px}.balance-hero-bottom>span{display:flex;align-items:center;gap:6px;opacity:.75}.live-dot{width:5px;height:5px;border-radius:50%;background:currentColor}.hero-currency{display:flex;align-items:center;background:#0000000d;border:1px solid #0000000d;border-radius:8px;padding-right:6px}.hero-currency select{color:inherit!important;background:transparent!important;border:0!important;min-height:27px!important;padding:3px 6px!important;font-size:.65rem!important;font-weight:700;appearance:none}.account-toolbar{display:flex;align-items:center;justify-content:space-between;gap:4px;margin:22px 0}.text-tabs{display:flex;align-items:center;gap:4px}.text-tabs button{border:0;border-radius:8px;background:transparent;color:var(--muted);font-size:.73rem;padding:8px 12px;min-height:35px;white-space:nowrap}.text-tabs button[aria-pressed=true]{background:var(--surface);color:var(--text)}.archive-button{font-size:.66rem;color:var(--muted);background:transparent;border:0;padding:5px;display:flex;align-items:center;gap:5px;min-height:36px}.archive-button.is-active{color:var(--primary)}.count-label{font-size:.64rem;color:var(--muted);border:1px solid var(--border);border-radius:6px;min-width:22px;text-align:center;padding:2px}.account-section{margin-top:23px}.account-card{border:1px solid var(--border);background:var(--surface);border-radius:19px;margin-bottom:12px;padding:17px 18px 19px}.account-card-head{display:flex;gap:12px;align-items:center;width:100%;background:none;border:0;padding:0;min-height:40px;text-align:left}.account-card-head>span:nth-child(2){flex:1;min-width:0}.account-card-head strong{display:block;font-size:.89rem;font-weight:650}.account-card-head small{display:block;font-size:.64rem;color:var(--muted);margin-top:5px}.account-card-head>svg{color:var(--muted)}.middle-dot{padding:0 6px}.tile-icon{width:42px;height:42px;border-radius:12px;display:inline-grid;place-items:center;flex-shrink:0;background:color-mix(in srgb,var(--muted) 9%,transparent);color:var(--muted)}.tile-icon.blue{color:#8bb9f5;background:#8bb9f512}.tile-icon.mint{color:#9adbbd;background:#9adbbd12}.tile-icon.peach{color:#e5b67e;background:#e5b67e12}.tile-icon.lavender{color:#b7a4e7;background:#b7a4e712}.account-currencies{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin-top:20px}.account-currencies>div{border-right:1px solid var(--border);padding-right:6px;min-width:0}.account-currencies>div:last-child{border:0;padding-right:0}.currency-caption{display:block;color:var(--muted);font-size:.58rem;letter-spacing:.7px;margin-bottom:6px}.account-currencies strong{font-size:.99rem;letter-spacing:-.5px;font-weight:600}.single-currency{grid-template-columns:1fr;margin-top:15px}.single-currency .currency-caption{display:none}.single-currency strong{font-size:1.25rem}.account-currencies:has(>div:nth-child(4)){grid-template-columns:repeat(2,minmax(0,1fr));row-gap:18px}.add-account{display:flex;align-items:center;justify-content:center;gap:8px;width:100%;margin-top:15px;background:none;border:1px dashed var(--border);color:var(--muted);font-size:.75rem;min-height:50px}.recent-section{margin-top:30px}.text-link{display:flex;gap:3px;align-items:center;font-size:.69rem;color:var(--primary)}.mini-transaction{display:flex;align-items:center;gap:11px;padding:13px 0;border-bottom:1px solid color-mix(in srgb,var(--border) 70%,transparent)}.mini-transaction:last-child{border:0}.mini-transaction>div{min-width:0;flex:1}.mini-transaction strong{display:block;font-size:.79rem;font-weight:500}.mini-transaction small{display:block;color:var(--muted);font-size:.64rem;margin-top:4px}.mini-transaction>.category-badge,.mini-transaction>.tile-icon{height:38px;width:38px;border-radius:11px}.mini-transaction>span:last-child{font-size:.78rem;font-weight:600}.bottom-nav{position:fixed;bottom:0;left:50%;transform:translateX(-50%);width:min(100%,520px);z-index:20;background:color-mix(in srgb,var(--background) 94%,transparent);backdrop-filter:blur(20px);border-top:1px solid var(--border);display:grid;grid-template-columns:repeat(5,1fr);padding:12px 12px max(15px,env(safe-area-inset-bottom));gap:2px}.bottom-nav a{display:flex;align-items:center;justify-content:center;flex-direction:column;gap:7px;min-height:48px;color:var(--muted);font-size:.59rem;letter-spacing:.1px}.bottom-nav .nav-icon{display:grid;place-items:center;width:43px;height:28px;border-radius:10px}.bottom-nav .current{color:var(--primary)}.bottom-nav .current .nav-icon{background:color-mix(in srgb,var(--primary) 12%,transparent)}.floating-add{position:fixed;right:max(calc((100vw - 520px)/2 + 24px),24px);bottom:calc(96px + env(safe-area-inset-bottom));z-index:19;display:flex;align-items:center;justify-content:center;gap:9px;padding:13px 20px 13px 14px;min-height:50px;border:0;border-radius:17px;background:var(--primary);color:var(--on-primary);box-shadow:0 5px 25px #0005;font-size:.77rem}.desktop-note{position:fixed;bottom:40px;left:40px;display:none;font-size:11px;letter-spacing:2px;color:#8c9a9f;font-weight:500;line-height:2}.desktop-note span{font-size:8px;color:#53616a;letter-spacing:1.7px}.card{background:var(--surface);border:1px solid var(--border);border-radius:20px;padding:20px;margin:18px 0}.card>h2,.card>h3{margin-bottom:14px}.card-grid{display:grid;gap:14px}.card-grid>.card{margin:0}.field{display:block;min-width:0;margin:14px 0}.field>span:first-child{display:block;font-size:.7rem;font-weight:500;color:var(--muted);margin-bottom:8px}.field input:not([type=checkbox]):not([type=color]),.field select,.field textarea{width:100%;max-width:100%}input,select,textarea{border:1px solid var(--border);border-radius:11px;background:color-mix(in srgb,var(--background) 58%,var(--surface));color:var(--text);min-height:46px;padding:10px 12px;font-size:.83rem;min-width:0}input::placeholder,textarea::placeholder{color:var(--muted);opacity:.65}textarea{resize:vertical}input[type=checkbox]{width:17px;height:17px;min-height:17px;padding:0;accent-color:var(--primary);flex-shrink:0}input[type=color]{height:46px;width:100%;padding:5px}select{padding-right:24px}select option{background:var(--surface);color:var(--text)}input[type=date],input[type=month]{width:100%;min-width:0}fieldset{border:1px solid var(--border);border-radius:15px;margin:20px 0;padding:12px;min-width:0}fieldset legend{font-size:.75rem;color:var(--muted);padding:0 6px}.form-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:0 12px}.check{display:flex;gap:9px;align-items:center;font-size:.73rem;color:var(--muted);line-height:1.5;margin:14px 0}.choices{display:flex;flex-wrap:wrap;gap:0 16px}.choices .check{margin:8px 0}.actions{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:20px}.actions>*{flex:1;white-space:nowrap}.full-width{width:100%;display:flex;align-items:center;justify-content:center;gap:9px}.error{border-radius:12px;padding:13px;background:color-mix(in srgb,var(--danger) 10%,transparent);color:var(--danger);font-size:.8rem;margin:12px 0;line-height:1.6}.notice{background:color-mix(in srgb,var(--primary) 8%,transparent);border:1px solid color-mix(in srgb,var(--primary) 15%,transparent);border-radius:14px;padding:14px;font-size:.78rem;line-height:1.5;margin:16px 0;display:flex;gap:10px;flex-wrap:wrap;align-items:center}.status{font-size:.6rem;color:var(--primary);background:color-mix(in srgb,var(--primary) 9%,transparent);padding:5px 8px;border-radius:7px;white-space:nowrap}.empty{padding:25px 0;color:var(--muted);font-size:.78rem;text-align:center}.empty-state{display:flex;align-items:center;justify-content:center;flex-direction:column;gap:15px;padding:45px 20px;color:var(--muted);text-align:center;font-size:.8rem}.table-wrap{overflow-x:auto;max-width:100%;margin:14px 0}table{border-collapse:collapse;font-size:.72rem;width:100%;text-align:left}th{color:var(--muted);font-weight:500}th,td{padding:13px 8px;border-bottom:1px solid var(--border);white-space:nowrap}th:first-child,td:first-child{padding-left:0}.segmented-control{display:flex;border:1px solid var(--border);border-radius:13px;background:color-mix(in srgb,var(--surface) 55%,var(--background));padding:4px;gap:3px}.segmented-control button{flex:1;min-width:0;min-height:36px;padding:8px 7px;border:0;background:none;color:var(--muted);font-size:.72rem;border-radius:9px}.segmented-control button[aria-pressed=true]{background:var(--surface);color:var(--text);box-shadow:0 2px 6px #0001}.month-picker{display:flex;justify-content:space-between;align-items:center;margin:15px 0 22px}.month-picker .icon-button{color:var(--muted)}.month-picker label{position:relative;display:flex;gap:7px;align-items:center;font-size:.85rem;font-weight:600;text-transform:capitalize}.month-picker input{position:absolute;inset:0;opacity:0;cursor:pointer}.month-picker input::-webkit-calendar-picker-indicator{position:absolute;inset:0;width:auto;height:auto;opacity:0;cursor:pointer}.flow-toggle{display:grid;grid-template-columns:1fr 1fr;gap:6px;padding:5px;border:1px solid var(--border);border-radius:18px;background:var(--surface);margin:12px 0 29px}.flow-toggle button{border:0;background:none;text-align:left;padding:13px 15px}.flow-toggle button[aria-pressed=true]{background:var(--background);box-shadow:0 1px 5px #0001}.flow-toggle button>span{display:flex;align-items:center;gap:5px;font-size:.7rem;color:var(--muted)}.flow-toggle strong{display:block;font-size:1.3rem;font-weight:550;margin-top:10px}.flow-toggle button:first-child[aria-pressed=true] strong{color:var(--danger)}.flow-toggle button:last-child[aria-pressed=true] strong{color:var(--positive)}.category-topline h2{color:var(--muted);font-size:.73rem}.category-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}.category-tile{display:flex;flex-direction:column;align-items:flex-start;position:relative;overflow:hidden;text-align:left;min-height:146px;padding:16px;border:1px solid var(--border);border-radius:19px;background:var(--surface)}.category-tile .category-badge{height:35px;width:35px;border-radius:10px;margin-bottom:15px}.category-tile .category-badge svg{height:20px;width:20px}.category-tile-name{font-size:.72rem;color:var(--muted);line-height:1.35;margin-bottom:8px}.category-tile strong{font-size:1.05rem;font-weight:550;max-width:100%;overflow-wrap:anywhere}.category-tile .money{white-space:normal}.category-tile-track{position:absolute;bottom:0;left:0;width:100%;height:2px;background:transparent}.category-tile-track>span{display:block;height:100%;opacity:.7}.new-category{border-style:dashed;justify-content:center;background:transparent;gap:13px;font-size:.75rem;color:var(--muted)}.category-badge{width:43px;height:43px;border-radius:12px;display:inline-flex;align-items:center;justify-content:center;flex-shrink:0;}.category-badge svg{width:24px;height:24px}.category-appearance-preview{display:flex;align-items:center;gap:15px;font-size:.8rem}.category-icon-picker{margin:20px 0}.category-icon-picker h3{color:var(--muted);font-size:.75rem;margin:15px 0 10px}.category-icon-grid{display:grid;grid-template-columns:repeat(6,1fr);gap:8px}.category-icon-grid button{padding:6px;display:flex;justify-content:center;align-items:center;min-width:0}.category-icon-grid button[aria-pressed=true]{border-color:var(--primary)}.category-icon-grid svg{width:23px;height:23px}.category-icon-picker>p{font-size:.7rem}.flow-card{padding:18px 16px;background:var(--surface);border:1px solid var(--border);border-radius:17px;min-width:0}.flow-card>span{font-size:.67rem;display:flex;align-items:center;gap:5px;color:var(--muted)}.flow-card>strong{display:block;font-weight:600;font-size:1.2rem;margin-top:12px;letter-spacing:-.4px}.flow-card.income strong{color:var(--positive)}.flow-card.expense strong{color:var(--danger)}.analytics-totals{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:17px}.net-row{grid-column:1/-1;display:flex;justify-content:space-between;align-items:center;padding:8px 3px 6px;font-size:.7rem;color:var(--muted)}.net-row strong{font-size:.78rem;font-weight:500}.analytics-top{display:flex;align-items:center;justify-content:space-between;gap:5px;margin:22px 0}.analytics-top select{font-size:.65rem;max-width:125px;min-height:35px;padding:5px 8px}.analytics-top .text-tabs{gap:0}.analytics-top .text-tabs button{font-size:.68rem;padding:8px 10px}.period-tabs{margin:19px 0 0}.report-settings{margin-top:-9px;margin-bottom:12px}.report-settings>summary{display:flex;align-items:center;justify-content:flex-end;gap:7px;cursor:pointer;color:var(--muted);font-size:.65rem;list-style:none;padding:6px}.spending-card{margin-top:23px}.chart-view-switch{display:flex;gap:0;align-items:center}.chart-view-switch button{padding:7px;min-height:30px;width:30px;background:transparent;border:0;border-radius:7px;color:var(--muted)}.chart-view-switch button svg{width:16px;height:16px}.chart-view-switch button[aria-pressed=true]{color:var(--primary);background:color-mix(in srgb,var(--primary) 10%,transparent)}.currency-category-group>h3{font-size:.6rem;letter-spacing:1px;color:var(--muted)}.category-donut{width:198px;height:198px;border-radius:50%;display:grid;place-items:center;position:relative;margin:20px auto 28px;transform:rotate(-90deg)}.category-donut>div{height:158px;width:158px;border-radius:50%;background:var(--surface);display:grid;place-items:center;transform:rotate(90deg);font-size:1.15rem;font-weight:600;letter-spacing:-.8px}.rollup-row{margin:17px 0}.rollup-row>.section-heading{font-size:.72rem;margin-bottom:9px;gap:7px}.rollup-row .money{font-size:.7rem;font-weight:500}.category-legend{display:flex;align-items:center;gap:8px;min-width:0}.category-legend>span:last-child{min-width:0}.category-legend small{font-size:.6rem;padding-left:3px}.category-swatch{height:7px;width:7px;border-radius:50%;display:inline-block;flex-shrink:0}.bar-track{height:3px;border-radius:5px;background:var(--border);margin-left:15px;overflow:hidden}.bar-track>div{height:100%;border-radius:5px}.category-stacked{height:28px;display:flex;gap:2px;border-radius:7px;overflow:hidden;margin:20px 0}.category-treemap{display:flex;min-height:140px;gap:3px;overflow:hidden;border-radius:10px;margin:20px 0}.category-breakdown summary{list-style:none;cursor:pointer}.category-child{font-size:.7rem;margin-left:15px;padding:8px 0}.daily-chart .section-heading{align-items:start}.daily-chart .hint{font-size:.6rem;margin:0;text-align:right}.daily-bars{display:flex;gap:4px;height:98px;align-items:flex-end;padding-top:5px;margin-top:24px;border-bottom:1px solid var(--border);background:repeating-linear-gradient(to bottom,transparent 0px,transparent 32px,color-mix(in srgb,var(--border) 50%,transparent) 33px)}.daily-bars>span{flex:1;background:color-mix(in srgb,var(--primary) 50%,var(--surface));border-radius:3px 3px 0 0;min-width:1px}.daily-bars .today{background:var(--primary)}.chart-axis{display:flex;justify-content:space-between;font-size:.55rem;color:var(--muted);margin-top:11px}.forecast-switch{display:flex;gap:12px;align-items:center;font-size:.75rem;margin:22px 0;padding:15px;border:1px solid var(--border);border-radius:17px}.forecast-switch>span:nth-child(2){flex:1}.forecast-switch .tile-icon{width:35px;height:35px;border-radius:10px}.overview-group-header .hint{font-size:.7rem}.overview-group-header .section-heading{align-items:flex-start;flex-direction:column}.overview-group-header .field{width:100%;margin:0}.overview-widget-grid>.card{margin:15px 0}.widget-context{font-size:.65rem;color:var(--muted);margin:4px 0 12px}.balance-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}.balance-tile{padding:14px;border:1px solid var(--border);border-radius:12px}.balance-tile small{display:block;color:var(--muted);margin-bottom:9px}.balance-tile .money{font-size:.95rem}.balance-stack{display:flex;flex-direction:column;gap:6px;text-align:right}.account-summary{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:14px 0;border-bottom:1px solid var(--border);font-size:.76rem}.account-summary:last-child{border:0}.account-summary .hint{font-size:.64rem;margin:5px 0 0}.rate-tile strong{font-size:.8rem}.rate-tile .hint{font-size:.62rem}.filters{margin:15px 0 24px;padding:12px 15px;background:transparent;border-radius:13px}.filters>summary{display:flex;align-items:center;gap:8px;list-style:none;color:var(--muted);font-size:.73rem;cursor:pointer;min-height:24px}.filters[open]>summary{margin-bottom:20px}.page-transactions>.field>span{display:none}.page-transactions>.field input{background:var(--surface);padding-left:16px}.page-transactions>h2{font-size:.72rem;color:var(--muted);margin-top:25px}.transaction-day{margin:22px 0}.transaction-day>h3{font-size:.65rem;font-weight:500;letter-spacing:.2px;color:var(--muted);margin-bottom:9px}.transaction-item{display:flex;align-items:center;gap:11px;width:100%;border:0;border-bottom:1px solid color-mix(in srgb,var(--border) 70%,transparent);border-radius:0;background:none;text-align:left;padding:15px 0;min-height:74px}.transaction-item .category-badge,.transaction-item .tile-icon{width:42px;height:42px}.transaction-item-text{flex:1;min-width:0}.transaction-item-text strong{display:block;font-size:.79rem;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.transaction-item-text small{display:block;font-weight:400;font-size:.61rem;color:var(--muted);margin-top:6px;line-height:1.4}.transaction-item-amount{font-size:.82rem;text-align:right;font-weight:500}.transaction-item-amount>small{display:block;font-size:.55rem;color:var(--muted);margin-top:6px}.detail-list{display:grid;grid-template-columns:1fr 1fr;gap:0;font-size:.75rem;margin:25px 0}.detail-list dt,.detail-list dd{border-bottom:1px solid var(--border);padding:13px 0;margin:0}.detail-list dt{color:var(--muted)}.detail-list dd{text-align:right}.transaction-detail-hero,.category-detail-hero{display:flex;align-items:center;flex-direction:column;gap:14px;padding:16px 0 20px}.transaction-detail-hero h2{font-size:1rem}.transaction-detail-hero>div:last-child,.category-detail-hero>strong{font-size:2rem;font-weight:600}.category-detail-hero>p{color:var(--muted);font-size:.75rem}.detail-balance>div{display:flex;justify-content:space-between;gap:14px;border-bottom:1px solid var(--border);padding:20px 0}.detail-balance>div>span:first-child{color:var(--muted);font-size:.8rem}.detail-balance .money{font-size:1.3rem}.back-link{display:inline-flex;align-items:center;gap:4px;font-size:.72rem;color:var(--muted);margin:2px 0 13px}.profile-card{display:flex;align-items:center;gap:15px;padding:20px 0 28px}.large-avatar{width:54px;height:54px;font-size:1.2rem;border-radius:18px}.profile-card>div:nth-child(2){flex:1;min-width:0}.profile-card p{font-size:.7rem;color:var(--muted);margin-top:4px}.profile-card>svg{color:var(--muted)}.menu-list{border:1px solid var(--border);border-radius:20px;background:var(--surface);padding:0 16px;margin-bottom:17px}.menu-link{display:flex;align-items:center;gap:13px;padding:18px 0;border:0;border-bottom:1px solid var(--border);width:100%;text-align:left;border-radius:0;background:none}.menu-link:last-child{border:0}.menu-link>span:nth-child(2){flex:1}.menu-link strong{font-size:.8rem;font-weight:550;display:block}.menu-link small{display:block;font-size:.63rem;color:var(--muted);margin-top:5px;line-height:1.5}.menu-link>svg:last-child{color:var(--muted);margin-left:auto}.compact-menu .menu-link{padding:17px 3px;color:var(--muted)}.compact-menu strong{font-size:.76rem;font-weight:400}.compact-menu>button:hover{border-color:var(--border)}.demo-note{display:flex;gap:10px;color:var(--muted);font-size:.64rem;line-height:1.7;margin:28px 4px}.demo-note svg{flex-shrink:0;margin-top:3px}.more-footer{font-size:2rem;letter-spacing:-1.7px;text-align:center;color:var(--muted);font-weight:800;margin-top:25px;opacity:.5}.more-footer>span{color:var(--primary)}.more-footer small{display:block;font-size:.6rem;font-weight:400;letter-spacing:.5px;margin-top:5px}.settings-tabs{margin:5px 0 25px}.settings-content:not(.settings-appearance)>.settings-appearance,.settings-content:not(.settings-family)>.settings-family:not(.settings-data),.settings-content:not(.settings-data)>.settings-data:not(.settings-family){display:none}.settings-content.settings-appearance>.settings-family.settings-data{display:none}.settings-content>.card{padding:20px}.settings-content>.card>p:first-child{font-size:.8rem}.theme-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}.theme-grid button{display:flex;align-items:center;justify-content:flex-start;gap:6px;padding:9px 6px;font-size:.59rem;font-weight:500;min-height:41px}.theme-dot{width:12px;height:12px;border-radius:50%;flex-shrink:0}.selected-theme{border-color:var(--primary)}.settings-content .choices{gap:0 12px}.settings-content input[type=file]{font-size:.7rem;padding:9px;white-space:normal}.backup-preview dl{display:grid;grid-template-columns:1fr 1fr;gap:10px;font-size:.75rem}.backup-preview dd{margin:0;text-align:right}.schedule-banner{display:flex;gap:14px;padding:19px;background:var(--surface);border:1px solid var(--border);border-radius:20px;margin-bottom:25px}.schedule-banner strong{font-size:.9rem;font-weight:500}.schedule-banner p{font-size:.68rem;color:var(--muted);margin-top:7px}.recurring-payment-card{padding:19px}.recurring-payment-name{display:flex;gap:11px;align-items:center;min-width:0}.recurring-payment-name h2{font-size:.85rem}.recurring-payment-name .hint{font-size:.62rem;margin:4px 0 0}.recurring-payment-name .category-badge{width:38px;height:38px}.recurring-payment-amount{font-size:1.8rem;margin:20px 0 8px;font-weight:550}.recurring-payment-card>p{font-size:.75rem}.recurring-payment-card .row-actions{display:flex;gap:5px;margin-top:17px;padding-top:15px;border-top:1px solid var(--border);flex-wrap:wrap}.recurring-payment-card .row-actions button{flex:1;font-size:.62rem;padding:8px 7px;min-height:34px;border-radius:8px}.recurring-payment-card .row-actions .danger{flex-basis:100%;margin-top:4px;min-height:30px;border:0;background:transparent}.recurring-preview{padding:17px;border-radius:15px;border:1px solid color-mix(in srgb,var(--primary) 30%,transparent);background:color-mix(in srgb,var(--primary) 5%,transparent);margin-top:20px}.recurring-preview h3{margin-bottom:13px;font-size:.74rem}.recurring-preview .section-heading{font-size:.8rem}.recurrence-presets{display:grid;grid-template-columns:repeat(2,1fr);gap:7px;margin:12px 0}.recurrence-presets button{font-size:.7rem;min-height:40px}.recurrence-presets button[aria-pressed=true]{background:color-mix(in srgb,var(--primary) 12%,transparent);color:var(--primary);border-color:var(--primary)}.recurring-preview-dates{display:flex;gap:6px;flex-wrap:wrap;margin-top:12px}.recurring-preview-dates>*{font-size:.65rem;border-radius:7px;background:var(--surface);padding:6px}.rate-chart{width:100%;height:auto;margin:20px 0;color:var(--primary)}.rate-chart text{fill:var(--muted);font-size:12px}.fx-result{border-top:1px solid var(--border);margin-top:20px;padding-top:22px}.fx-result>.money{font-size:2rem;color:var(--primary);font-weight:600}.fx-result p{font-size:.7rem;color:var(--muted);margin-top:8px}.subtle-notice{display:flex;gap:7px;align-items:center;font-size:.64rem;color:var(--muted);margin-bottom:20px}.fx-calculator{padding:22px}.fx-calculator button.primary{width:100%;margin-top:10px}.pre-wrap{white-space:pre-wrap;overflow-wrap:anywhere;font-size:.78rem}
++dialog{padding:22px 24px 26px;border:1px solid var(--border);border-bottom:0;border-radius:26px 26px 0 0;background:var(--background);color:var(--text);width:min(100%,520px);max-width:100%;max-height:94dvh;overflow-y:auto;overscroll-behavior:contain;margin:auto auto 0;box-shadow:0 -10px 70px #0004;scrollbar-width:thin;scrollbar-color:var(--border) transparent}dialog::backdrop{background:#04080bc9;backdrop-filter:blur(5px)}dialog:before{content:'';display:block;width:37px;height:4px;border-radius:4px;background:var(--border);margin:-9px auto 21px}.dialog-header{display:flex;align-items:center;justify-content:space-between;gap:15px;margin-bottom:21px}.dialog-header h2{font-size:1.03rem;font-weight:600;letter-spacing:-.4px}.dialog-header .icon-button{background:var(--surface);font-size:1.4rem;color:var(--muted);width:30px;height:30px;min-height:30px}.entry-types{margin-bottom:15px}.entry-types button{display:flex;align-items:center;justify-content:center;gap:6px;min-height:38px;font-size:.7rem}.entry-types button[aria-pressed=true]{background:color-mix(in srgb,var(--primary) 11%,var(--surface));color:var(--primary)}.entry-date{position:relative;margin:18px auto 3px;display:flex;align-items:center;justify-content:center;gap:7px;color:var(--muted);font-size:.69rem;width:190px}.entry-date input{position:absolute;inset:0;width:100%;opacity:0;min-height:20px}.entry-date input::-webkit-calendar-picker-indicator{position:absolute;inset:0;width:auto;height:auto;opacity:0}.entry-amount{display:flex;align-items:center;justify-content:center;gap:5px;margin:13px 0 20px}.entry-amount input{font-size:3.2rem;font-weight:500;letter-spacing:-2px;background:transparent;border:0;text-align:center;width:65%;height:72px;padding:0;outline-offset:0}.entry-amount input::placeholder{color:var(--text);opacity:.9}.entry-amount select{background:var(--surface);min-height:34px;padding:7px;font-size:.75rem;border-radius:9px;max-width:83px}.entry-selection{display:grid;grid-template-columns:1fr 1fr;gap:10px}.entry-selection .field{margin:0;border:1px solid var(--border);background:var(--surface);border-radius:15px;padding:12px 10px 8px}.entry-selection .field>span:first-child{font-size:.62rem;padding-left:3px;margin:0}.entry-selection select{background:none;border:0;border-radius:5px;padding:6px 2px;font-size:.8rem;min-height:38px;width:100%}.quick-categories{display:flex;gap:7px;overflow-x:auto;padding:16px 0 3px;scrollbar-width:none}.quick-categories>button{display:flex;align-items:center;flex-direction:column;border:1px solid transparent;background:transparent;border-radius:12px;width:62px;flex-shrink:0;padding:6px 3px;gap:7px}.quick-categories>button[aria-pressed=true]{border-color:var(--border);background:var(--surface)}.quick-categories .category-badge{width:33px;height:33px;border-radius:10px}.quick-categories .category-badge svg{height:19px;width:19px}.quick-categories>button>span:last-child{font-size:.52rem;max-width:58px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--muted);font-weight:400}.entry-form>.field>span{display:none}.description-input{background:transparent;border:0;border-bottom:1px solid var(--border);border-radius:0;padding-left:3px;font-size:.75rem}.entry-options,.recurring-options,.merge-panel{margin:15px 0;font-size:.75rem}.entry-options>summary,.recurring-options>summary,.merge-panel>summary{list-style:none;display:flex;align-items:center;gap:8px;min-height:37px;color:var(--muted);cursor:pointer}.entry-options>summary>svg:last-child{margin-left:auto}.entry-options[open]{border-top:1px solid var(--border);border-bottom:1px solid var(--border);padding:10px 0}.split-row{display:grid;grid-template-columns:1fr .65fr 28px;gap:7px;align-items:center}.split-row button{min-height:30px;height:30px;width:28px;padding:0;border:0;background:none;color:var(--muted)}.split-row input,.split-row select{font-size:.75rem;padding:8px 5px}.keypad-toggle{display:flex;justify-content:flex-end}.keypad-toggle .check{font-size:.61rem;margin:3px 0 8px}.keypad-toggle input{width:12px;height:12px;min-height:12px}.keypad{display:grid;grid-template-columns:repeat(3,1fr);gap:5px;margin-bottom:15px}.keypad button{font-size:1.4rem;font-weight:400;letter-spacing:-.5px;min-height:48px;padding:7px;border:0;border-radius:11px;background:var(--surface)}.keypad button:last-child{display:grid;place-items:center;font-size:1rem}.keypad button:active{background:var(--border)}.entry-submit{position:sticky;bottom:-26px;background:var(--background);padding:7px 0 max(15px,env(safe-area-inset-bottom));margin-bottom:-12px}.entry-submit .primary{min-height:49px;border-radius:14px;font-size:.82rem}.welcome-header{display:flex;justify-content:space-between;align-items:center;padding:25px}.welcome-header .field{max-width:150px;margin:0}.welcome-header .field>span{display:none}.welcome-header select{font-size:.7rem;min-height:36px}.welcome-main{padding:30px 24px 60px}.auth-intro{padding:25px 6px 22px}.hero-mark{display:grid;place-items:center;width:76px;height:76px;border:1px solid color-mix(in srgb,var(--primary) 30%,transparent);border-radius:22px;color:var(--primary);background:color-mix(in srgb,var(--primary) 8%,transparent);margin-bottom:35px;transform:rotate(-6deg)}.hero-mark svg{transform:rotate(6deg)}.auth-intro h1{font-size:2.7rem;line-height:1.2;margin:15px 0 18px;letter-spacing:-1.7px}.auth-intro>p:last-child{font-size:.8rem;color:var(--muted);max-width:280px}.mode-switch{display:flex;gap:6px;margin-bottom:25px}.mode-switch button{flex:1;font-size:.75rem;padding:8px}.auth-card{border:0;background:none;padding:0}.auth-card>.form-grid{margin-bottom:20px}.welcome-main>.primary{margin-top:20px}.skeleton-page{color:var(--muted);font-size:.7rem;padding:25px 0}.skeleton-page div{height:140px;border-radius:22px;background:var(--surface);margin-bottom:17px;animation:pulse 1.2s infinite}.skeleton-page div:first-child{height:185px}.skeleton-page div:last-child{height:100px}
++@keyframes appear{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:translateY(0)}}@keyframes pulse{50%{opacity:.4}}@media(min-width:900px){.desktop-note{display:block}.app{border-left:1px solid #273038;border-right:1px solid #273038}.app-header{padding-top:30px}.bottom-nav{border-left:1px solid #273038;border-right:1px solid #273038}}@media(max-width:380px){#main-content{padding-left:17px;padding-right:17px}.app-header{padding-left:17px;padding-right:17px}.hero-amount{font-size:2.35rem}.account-currencies strong{font-size:.85rem}.category-tile{padding:14px}.flow-card{padding:14px 12px}.flow-card>strong{font-size:1.05rem}dialog{padding-left:17px;padding-right:17px}.account-toolbar .text-tabs button{padding:8px}.archive-button{font-size:.6rem}.floating-add{right:17px}.chart-view-switch button{width:26px;padding:5px}.space-selector{max-width:43%}}@media(prefers-reduced-motion:reduce){*{animation:none!important;scroll-behavior:auto!important;transition:none!important}}
++
++.category-icon-tile{display:grid;place-items:center;width:30px;height:30px;border-radius:8px}.category-icon-grid button{position:relative}.category-icon-selected{position:absolute;right:2px;top:0;color:var(--primary);font-size:10px}.flow-card .money,.account-currencies .money{white-space:normal;overflow-wrap:anywhere}.category-icon-group h3{font-size:.7rem}
+diff --git a/apps/web/src/themes.ts b/apps/web/src/themes.ts
+index bcf14dacc9efd5839ea41cb71553edbf0035aa41..1b1a9334064a8804ff36d51f358247e56b09fdaf 100644
+--- a/apps/web/src/themes.ts
++++ b/apps/web/src/themes.ts
+@@ -29,7 +29,7 @@ export type AppTheme = {
+ };
+ 
+ export const themes: AppTheme[] = [
+-  { id: 'wealth', name: 'Wealth', background: '#F3FAF6', surface: '#FFFFFF', text: '#10261C', muted: '#617269', primary: '#087F5B', onPrimary: '#FFFFFF', accent: '#D6A321', border: '#CFE3D7', positive: '#198754', warning: '#B7791F', danger: '#C53030' },
++  { id: 'wealth', name: 'Midnight', background: '#101619', surface: '#1A2227', text: '#F2F5F4', muted: '#8E9DA5', primary: '#A6E7CC', onPrimary: '#132B22', accent: '#A6E7CC', border: '#2C363D', positive: '#9DDFBD', warning: '#E7BE79', danger: '#E89CA7' },
+   { id: 'ocean', name: 'Ocean', background: '#F0F8FF', surface: '#FFFFFF', text: '#102A43', muted: '#526D86', primary: '#1261A0', onPrimary: '#FFFFFF', accent: '#00A8CC', border: '#C7DDF0', positive: '#107657', warning: '#B26A00', danger: '#C53B3B' },
+   { id: 'grape', name: 'Grape', background: '#F8F5FC', surface: '#FFFFFF', text: '#2B1838', muted: '#76637F', primary: '#6F42C1', onPrimary: '#FFFFFF', accent: '#A855F7', border: '#DED2EC', positive: '#23845B', warning: '#A96F00', danger: '#C33C64' },
+   { id: 'sunset', name: 'Sunset', background: '#FFF7F2', surface: '#FFFFFF', text: '#3A2118', muted: '#816A61', primary: '#C74724', onPrimary: '#FFFFFF', accent: '#E84A72', border: '#F0D7CC', positive: '#247A53', warning: '#B56B00', danger: '#C73548' },
