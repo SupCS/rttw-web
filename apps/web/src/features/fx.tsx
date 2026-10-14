@@ -1,5 +1,7 @@
 import { useState, type FormEvent } from 'react';
 import { addDays, convertMoney, parseMajorAmount, serializeMoney, type MoneyCurrencyCode, type WireMoney } from '@rttw/domain';
+import { Icon, Heading, ui } from '../components/design';
+import { FxWidget } from './overview-fx';
 import { history, rates, type FxRate } from '../data/api';
 import { errorText } from '../data/use-ledger';
 import { today } from '../format';
@@ -29,7 +31,7 @@ export function Fx(props: FeatureProps) {
     event.preventDefault(); const data = new FormData(event.currentTarget); setHistoryLoading(true); setHistoryError(''); setSeries([]);
     try { const result = await history(base, quote, text(data, 'from'), text(data, 'to')); setSeries(result.rates); if (!result.rates.length) setHistoryError(t.noRate); } catch (failure) { setHistoryError(errorText(failure, t)); } finally { setHistoryLoading(false); }
   }
-  return <><h1>{t.fx}</h1><section className="card"><h2>{t.calculator}</h2><form onSubmit={(event) => void calculate(event)}>
+  return <><Heading title={t.fx} subtitle="USD / EUR / GEL"/><section className="card fx-calculator"><h2>{t.calculator}</h2><form onSubmit={(event) => void calculate(event)}>
     <div className="form-grid"><Field label={`${t.from} · ${t.currency}`}><CurrencySelect value={base} onChange={(value) => { setBase(value); setResult(null); setSeries([]); }} /></Field><Field label={`${t.to} · ${t.currency}`}><CurrencySelect value={quote} onChange={(value) => { setQuote(value); setResult(null); setSeries([]); }} /></Field></div>
     <div className="form-grid"><Field label={t.amount}><input name="amount" inputMode="decimal" defaultValue="100" required /></Field><Field label={t.date}><input type="date" name="date" defaultValue={today()} required max={today()} /></Field></div>
     <Field label={`${t.manualRate} · ${base} → ${quote}`}><input name="manual" inputMode="decimal" /></Field><button className="primary" disabled={working}>{working ? t.loading : t.calculate}</button>

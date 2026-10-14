@@ -29,7 +29,7 @@ export type AppTheme = {
 };
 
 export const themes: AppTheme[] = [
-  { id: 'wealth', name: 'Wealth', background: '#F3FAF6', surface: '#FFFFFF', text: '#10261C', muted: '#617269', primary: '#087F5B', onPrimary: '#FFFFFF', accent: '#D6A321', border: '#CFE3D7', positive: '#198754', warning: '#B7791F', danger: '#C53030' },
+  { id: 'wealth', name: 'Midnight', background: '#101619', surface: '#1A2227', text: '#F2F5F4', muted: '#8E9DA5', primary: '#A6E7CC', onPrimary: '#132B22', accent: '#A6E7CC', border: '#2C363D', positive: '#9DDFBD', warning: '#E7BE79', danger: '#E89CA7' },
   { id: 'ocean', name: 'Ocean', background: '#F0F8FF', surface: '#FFFFFF', text: '#102A43', muted: '#526D86', primary: '#1261A0', onPrimary: '#FFFFFF', accent: '#00A8CC', border: '#C7DDF0', positive: '#107657', warning: '#B26A00', danger: '#C53B3B' },
   { id: 'grape', name: 'Grape', background: '#F8F5FC', surface: '#FFFFFF', text: '#2B1838', muted: '#76637F', primary: '#6F42C1', onPrimary: '#FFFFFF', accent: '#A855F7', border: '#DED2EC', positive: '#23845B', warning: '#A96F00', danger: '#C33C64' },
   { id: 'sunset', name: 'Sunset', background: '#FFF7F2', surface: '#FFFFFF', text: '#3A2118', muted: '#816A61', primary: '#C74724', onPrimary: '#FFFFFF', accent: '#E84A72', border: '#F0D7CC', positive: '#247A53', warning: '#B56B00', danger: '#C73548' },

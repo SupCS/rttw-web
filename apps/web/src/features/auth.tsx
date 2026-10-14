@@ -1,3 +1,4 @@
+import { Icon } from '../components/design';
 import { useState, type FormEvent } from 'react';
 import { ApiError, authenticate, type WebSession } from '../data/api';
 import { ErrorMessage, Field, text } from '../components/shared';
@@ -14,7 +15,7 @@ export function Auth({ t, onAuthenticated }: { t: Text; onAuthenticated: (sessio
     catch (failure) { setError(failure instanceof ApiError && failure.code === 'email_in_use' ? t.emailInUse : failure instanceof ApiError && failure.status === 401 ? t.authError : t.requestError); }
     finally { setBusy(false); }
   }
-  return <div className="auth-layout"><section className="auth-intro"><span className="hero-mark" aria-hidden="true">↗</span><h1>Road To The Wealth</h1><p className="hero-tagline">{t.tagline}</p><p>{t.cloudHint}</p></section><section className="card auth-card"><div className="mode-switch">{(['login', 'register'] as const).map((value) => <button key={value} className={mode === value ? 'primary' : ''} onClick={() => { setMode(value); setError(''); }} disabled={busy} aria-pressed={mode === value}>{t[value]}</button>)}</div><form onSubmit={(event) => void submit(event)}>
+  return <div className="auth-layout"><section className="auth-intro"><span className="hero-mark" aria-hidden="true"><Icon name="arrow" size={40}/></span><p className="eyebrow">ROAD TO THE WEALTH</p><h1>{t.tagline}</h1><p>{t.cloudHint}</p></section><section className="card auth-card"><div className="mode-switch">{(['login', 'register'] as const).map((value) => <button key={value} className={mode === value ? 'primary' : ''} onClick={() => { setMode(value); setError(''); }} disabled={busy} aria-pressed={mode === value}>{t[value]}</button>)}</div><form onSubmit={(event) => void submit(event)}>
     <Field label={t.email}><input name="email" type="email" autoComplete="email" required maxLength={254} /></Field><Field label={t.password}><input name="password" type="password" autoComplete={mode === 'register' ? 'new-password' : 'current-password'} required minLength={12} maxLength={128} /></Field>
     {mode === 'register' && <Field label={t.confirmPassword}><input name="confirm" type="password" autoComplete="new-password" required minLength={12} maxLength={128} /></Field>}
     <ErrorMessage message={error} /><button disabled={busy} className="primary full-width">{busy ? t.loading : t[mode]}</button><p className="hint">{t.networkRequired}</p>

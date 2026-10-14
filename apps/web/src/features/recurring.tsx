@@ -5,6 +5,7 @@ import { errorText } from '../data/use-ledger';
 import { displayDate, today } from '../format';
 import { Amount, CurrencySelect, Dialog, ErrorMessage, Field, majorInput, type FeatureProps } from '../components/shared';
 import type { Text } from '../i18n';
+import { Icon, Heading, ui } from '../components/design';
 import { CategoryBadge } from './categories';
 
 type Preset = 'monthly' | 'weekly' | 'yearly' | 'custom';
@@ -41,8 +42,8 @@ export function Recurring(props: FeatureProps) {
     catch (failure) { setError(errorText(failure, t)); }
   }
   return <>
-    <div className="section-heading"><h1>{t.recurringPayments}</h1><button className="primary" disabled={!availableAccounts.length || busy} onClick={() => setEditing('new')}>{t.newRule}</button></div>
-    <p className="hint">{t.recurringHint}</p><ErrorMessage message={error} />{message && <p className="notice" role="status">{message}</p>}
+    <Heading title={t.recurring} subtitle={ui(language,'upcoming')} action={<button className="icon-button outlined" disabled={!availableAccounts.length||busy} onClick={()=>setEditing('new')} aria-label={t.newRule}><Icon name="plus"/></button>}/>
+    <div className="schedule-banner"><span className="tile-icon lavender"><Icon name="calendar" size={24}/></span><div><strong>{rules.filter(r=>r.isActive).length} · {t.active.toLowerCase()}</strong><p>{t.recurringAutoHint}</p></div></div><ErrorMessage message={error} />{message && <p className="notice" role="status">{message}</p>}
     {!availableAccounts.length && <p className="notice">{t.recurringNeedsAccount} <a href="#accounts">{t.newAccount}</a></p>}
     {!rules.length && <div className="card recurring-empty"><h2>{t.recurringEmptyTitle}</h2><p className="hint">{t.recurringEmptyHint}</p>{!!availableAccounts.length && <button className="primary" disabled={busy} onClick={() => setEditing('new')}>{t.newRule}</button>}</div>}
     <div className="card-grid">{rules.map((rule) => {

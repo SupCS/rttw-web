@@ -5,6 +5,8 @@ import { categoryLabel } from '../data/derived';
 import { errorText } from '../data/use-ledger';
 import { displayDate, today } from '../format';
 import { Amount, Dialog, ErrorMessage, Field, currencies, type FeatureProps } from '../components/shared';
+import { Icon, ui, Heading } from '../components/design';
+import { CategoryBadge } from './categories';
 import { TransactionEditor } from './transaction-editor';
 
 type Filters = { search: string; from: string; to: string; account: string; category: string; currency: string; member: string; source: string; type: string };
@@ -12,7 +14,7 @@ const emptyFilters: Filters = { search: '', from: '', to: '', account: '', categ
 export type Member = { id: string; userId: string; displayName: string; email: string; role: 'owner' | 'member' };
 export function Transactions(props: FeatureProps) {
   const { snapshot, t, language, locale, command, busy, moneyDisplay } = props;
-  const [filters, setFilters] = useState<Filters>(() => ({ ...emptyFilters, account: new URLSearchParams(location.hash.split('?')[1]).get('account') ?? '' }));
+  const [filters, setFilters] = useState<Filters>(() => ({ ...emptyFilters, account: new URLSearchParams(location.hash.split('?')[1]).get('account') ?? '', category: new URLSearchParams(location.hash.split('?')[1]).get('category') ?? '' }));
   const [members, setMembers] = useState<Member[]>([]);
   const [editing, setEditing] = useState<Transaction | 'new' | null>(null);
   const [deleting, setDeleting] = useState<Transaction | null>(null);
@@ -57,10 +59,10 @@ export function Transactions(props: FeatureProps) {
   const planned = visible.filter((item) => item.status === 'planned' || item.transactionDate > today());
   const actual = visible.filter((item) => (item.status === 'confirmed' || item.status === 'fx_pending') && item.transactionDate <= today());
   const reviews = visible.filter((item) => item.status === 'review' && item.transactionDate <= today());
-  return <><div className="section-heading"><h1>{t.transactions}</h1><button className="primary" onClick={() => setEditing('new')} disabled={!snapshot.accounts.some((item) => !item.isArchived && !item.deletedAt)}>{t.newTransaction}</button></div>
+  return <><Heading title={t.transactions} subtitle={ui(language,'monthTotal')} action={<button className="icon-button outlined" aria-label={t.newTransaction} onClick={()=>setEditing('new')} disabled={!snapshot.accounts.some(a=>!a.isArchived&&!a.deletedAt)}><Icon name="plus"/></button>}/>
     {!snapshot.accounts.some((item) => !item.isArchived && !item.deletedAt) && <p className="hint"><a href="#accounts">{t.newAccount}</a></p>}
-    <Field label={t.search}><input type="search" value={filters.search} onChange={(event) => change('search', event.target.value)} /></Field>
-    <details className="card filters"><summary>{t.filters}{Object.values(filters).some(Boolean) ? ' •' : ''}</summary><div className="form-grid">
+    <Field label={t.search}><input type="search" placeholder={t.search} value={filters.search} onChange={(event) => change('search', event.target.value)} /></Field>
+    <details className="card filters"><summary><Icon name="filter" size={18}/>{t.filters}{Object.values(filters).some(Boolean) ? ' •' : ''}</summary><div className="form-grid">
       <Field label={t.from}><input type="date" value={filters.from} onChange={(event) => change('from', event.target.value)} /></Field><Field label={t.to}><input type="date" value={filters.to} onChange={(event) => change('to', event.target.value)} /></Field>
       <Field label={t.account}><select value={filters.account} onChange={(event) => change('account', event.target.value)}><option value="">{t.all}</option>{snapshot.accounts.filter((item) => !item.deletedAt).map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></Field>
       <Field label={t.category}><select value={filters.category} onChange={(event) => change('category', event.target.value)}><option value="">{t.all}</option>{snapshot.categories.filter((item) => !item.deletedAt).map((item) => <option key={item.id} value={item.id}>{categoryLabel(item, snapshot.categories, language)}</option>)}</select></Field>
@@ -80,21 +82,16 @@ export function Transactions(props: FeatureProps) {
 }
 
 function TransactionRows({ rows, onEdit, onDelete, onCopy, members, ...props }: FeatureProps & { rows: Transaction[]; onEdit: (item: Transaction) => void; onDelete: (item: Transaction) => void; onCopy: (item: Transaction) => void; members: Member[] }) {
-  const { snapshot, t, language, locale, busy, moneyDisplay } = props;
-  return <div className="transaction-list">{rows.map((transaction) => {
-    const account = snapshot.accounts.find((item) => item.id === transaction.accountId);
-    const category = snapshot.categories.find((item) => item.id === transaction.categoryId);
-    const splits = snapshot.splits.filter((item) => !item.deletedAt && item.transactionId === transaction.id);
-    const link = snapshot.transferLinks.find((item) => !item.deletedAt && item.debitTransactionId === transaction.id);
-    const credit = link && snapshot.transactions.find((item) => item.id === link.creditTransactionId);
-    const target = credit && snapshot.accounts.find((item) => item.id === credit.accountId);
-    return <article className="card transaction-row" key={transaction.id}><div className="transaction-main"><h3>{transaction.description ?? t[transaction.transactionType]}</h3><p className="muted">{displayDate(transaction.transactionDate, locale)} · {account?.name}{target ? ` → ${target.name}` : ''} · {t[transaction.transactionType]}</p>
-      <p className="muted">{category ? categoryLabel(category, snapshot.categories, language) : splits.length ? splits.map((split) => snapshot.categories.find((item) => item.id === split.categoryId)?.names[language]).join(' + ') : transaction.transactionType === 'transfer' ? t.transfer : t.noCategory} · {members.find((item) => item.id === transaction.memberId)?.displayName ?? ''}</p>
-      {transaction.notes && <details><summary>{t.notes}</summary><p className="pre-wrap">{transaction.notes}</p></details>}
-      {transaction.fxSnapshot && <details><summary>{t.rate}: {transaction.fxSnapshot.rateDecimal}</summary><p>{transaction.fxSnapshot.provider} · {t.requestedDate}: {transaction.fxSnapshot.requestedDate} · {t.effectiveDate}: {transaction.fxSnapshot.effectiveDate}</p></details>}
-    </div><div className="transaction-amount"><span className={BigInt(transaction.originalAmount.amountMinor) < 0n ? 'negative' : 'positive'}><Amount value={link ? link.sentAmount : transaction.originalAmount} locale={locale} display={moneyDisplay} /></span>
-      {transaction.reportingAmount && transaction.reportingAmount.currency !== transaction.originalAmount.currency && <small>{t.reportingAmount}: <Amount value={transaction.reportingAmount} locale={locale} display={moneyDisplay} /></small>}
-      {(transaction.status !== 'confirmed' || transaction.transactionDate > today()) && <span className="status">{t[transaction.transactionDate > today() ? 'planned' : transaction.status]}</span>}
-    </div><div className="row-actions">{(['income', 'expense'] as string[]).includes(transaction.transactionType) && <button disabled={busy} onClick={() => onEdit(transaction)}>{t.edit}</button>}{transaction.transactionType !== 'transfer' && <button disabled={busy} onClick={() => onCopy(transaction)}>{t.copy}</button>}<button disabled={busy} className="danger" onClick={() => onDelete(transaction)}>{t.delete}</button>{transaction.transactionType === 'transfer' && <small className="hint">{t.transferEditHint}</small>}</div></article>;
-  })}</div>;
+  const { snapshot,t,language,locale,busy,moneyDisplay }=props;
+  const [selected,setSelected]=useState<Transaction|null>(null);
+  const groups=[...new Set(rows.map(r=>r.transactionDate))];
+  const details=(transaction:Transaction)=>{
+    const account=snapshot.accounts.find(a=>a.id===transaction.accountId),category=snapshot.categories.find(c=>c.id===transaction.categoryId);
+    const link=snapshot.transferLinks.find(l=>!l.deletedAt&&l.debitTransactionId===transaction.id),credit=link&&snapshot.transactions.find(t=>t.id===link.creditTransactionId),target=credit&&snapshot.accounts.find(a=>a.id===credit.accountId);
+    const splits=snapshot.splits.filter(s=>!s.deletedAt&&s.transactionId===transaction.id);
+    return {account,category,link,target,splits};
+  };
+  return <div className="transaction-list">{groups.map(date=><section className="transaction-day" key={date}><h3>{date===today()?ui(language,'now'):displayDate(date,locale)}</h3>{rows.filter(r=>r.transactionDate===date).map(tx=>{const d=details(tx);return <button className="transaction-item" key={tx.id} onClick={()=>setSelected(tx)}>{d.category?<CategoryBadge category={d.category}/>:<span className="tile-icon blue"><Icon name={tx.transactionType==='transfer'?'transfer':'receipt'}/></span>}<span className="transaction-item-text"><strong>{tx.description??d.category?.names[language]??t[tx.transactionType]}</strong><small>{d.account?.name}{d.target?` → ${d.target.name}`:d.category?` · ${d.category.names[language]}`:d.splits.length?` · ${t.split}`:''}</small></span><span className={`transaction-item-amount ${tx.transactionType==='transfer'?'neutral':BigInt(tx.originalAmount.amountMinor)>0?'positive':''}`}><Amount value={d.link?d.link.sentAmount:tx.originalAmount} locale={locale} display={moneyDisplay}/>{tx.status!=='confirmed'&&<small>{t[tx.status]}</small>}</span></button>})}</section>)}
+    {selected&&(()=>{const d=details(selected);return <Dialog title={t[ selected.transactionType ]} onClose={()=>setSelected(null)} t={t}><div className="transaction-detail-hero">{d.category&&<CategoryBadge category={d.category}/>}<h2>{selected.description??d.category?.names[language]??t[selected.transactionType]}</h2><div className={BigInt(selected.originalAmount.amountMinor)<0n?'negative':'positive'}><Amount value={selected.originalAmount} locale={locale} display={moneyDisplay}/></div></div><dl className="detail-list"><dt>{t.date}</dt><dd>{displayDate(selected.transactionDate,locale)}</dd><dt>{t.account}</dt><dd>{d.account?.name}</dd>{d.target&&<><dt>{t.destination}</dt><dd>{d.target.name}</dd></>}<dt>{t.category}</dt><dd>{d.category?categoryLabel(d.category,snapshot.categories,language):d.splits.length?t.split:t.noCategory}</dd><dt>{t.member}</dt><dd>{members.find(m=>m.id===selected.memberId)?.displayName??snapshot.member.displayName}</dd><dt>{t.source}</dt><dd>{t[selected.source==='recurring'?'recurring':selected.source]}</dd><dt>{t.type}</dt><dd>{t[selected.status]}</dd>{selected.reportingAmount&&selected.reportingAmount.currency!==selected.originalAmount.currency&&<><dt>{t.reportingAmount}</dt><dd><Amount value={selected.reportingAmount} locale={locale} display={moneyDisplay}/></dd></>}</dl>{d.splits.map(split=><div className="account-summary" key={split.id}><span>{snapshot.categories.find(c=>c.id===split.categoryId)?.names[language]}</span><Amount value={split.amount} locale={locale} display={moneyDisplay}/></div>)}{selected.notes&&<div className="card"><h3>{t.notes}</h3><p className="pre-wrap">{selected.notes}</p></div>}{selected.fxSnapshot&&<details className="entry-options"><summary>{t.rate}: {selected.fxSnapshot.rateDecimal}</summary><p className="hint">{selected.fxSnapshot.provider} · {t.requestedDate}: {selected.fxSnapshot.requestedDate} · {t.effectiveDate}: {selected.fxSnapshot.effectiveDate}</p></details>}<div className="actions">{['income','expense'].includes(selected.transactionType)&&<button className="primary" disabled={busy} onClick={()=>{onEdit(selected);setSelected(null)}}>{t.edit}</button>}{selected.transactionType!=='transfer'&&<button disabled={busy} onClick={()=>{onCopy(selected);setSelected(null)}}>{t.copy}</button>}<button className="danger" disabled={busy} onClick={()=>{onDelete(selected);setSelected(null)}}>{t.delete}</button></div>{selected.transactionType==='transfer'&&<p className="hint">{t.transferEditHint}</p>}</Dialog>})()}
+  </div>;
 }

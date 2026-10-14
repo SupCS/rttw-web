@@ -10,7 +10,7 @@ export function usePreferences() {
   const [language, changeLanguage] = useState<Language>(() => { const value = json('language'); return typeof value === 'string' && Object.hasOwn(languages, value) ? value as Language : 'ru'; });
   const [themeId, changeTheme] = useState<ThemeId>(() => { const value = json('theme'); return themes.find((item) => item.id === value)?.id ?? 'wealth'; });
   const [scope, changeScope] = useState<'personal' | 'household'>(() => json('scope') === 'household' ? 'household' : 'personal');
-  const [moneyDisplay, changeDisplay] = useState<'code' | 'symbol'>(() => json('moneyDisplay') === 'symbol' ? 'symbol' : 'code');
+  const [moneyDisplay, changeDisplay] = useState<'code' | 'symbol'>(() => json('moneyDisplay') === 'code' ? 'code' : 'symbol');
   const [fontSize, changeFont] = useState<'normal' | 'large' | 'extraLarge'>(() => { const value = json('fontSize'); return value === 'large' || value === 'extraLarge' ? value : 'normal'; });
   const [enabledCurrencies, changeCurrencies] = useState<MoneyCurrencyCode[]>(() => { const value = json('currencies'); return Array.isArray(value) ? value.filter((item): item is MoneyCurrencyCode => typeof item === 'string' && Object.hasOwn(currencyMetadata, item)) : ['GEL', 'USD', 'EUR', 'UAH']; });
   return { language, themeId, scope, moneyDisplay, fontSize, enabledCurrencies,
