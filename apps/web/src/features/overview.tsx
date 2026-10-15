@@ -35,7 +35,7 @@ export function Overview({ scope, onScope, ...props }: FeatureProps & {
   scope: Scope; onScope: (scope: Scope) => void;
 }) {
   const {snapshot,t,language}=props;
-  return <><Heading title={ui(language,'analytics')} subtitle={snapshot.household.name}/><div className="analytics-top"><h2>{t.cashFlowTitle}</h2><select aria-label={t.scope} value={scope} onChange={e=>onScope(e.target.value as Scope)}><option value="personal">{t.personal}</option><option value="household">{t.household}</option></select></div><PeriodReports {...props} scope={scope}/></>;
+  return <><Heading title={ui(language,'analytics')} subtitle={props.isPersonal?t.personalLedger:snapshot.household.name}/><div className="analytics-top"><h2>{t.cashFlowTitle}</h2>{!props.isPersonal&&<select aria-label={t.scope} value={scope} onChange={e=>onScope(e.target.value as Scope)}><option value="personal">{t.personal}</option><option value="household">{t.household}</option></select>}</div><PeriodReports {...props} scope={props.isPersonal?'household':scope}/></>;
 }
 
 function PeriodReports({ scope, ...props }: ScopedProps) {

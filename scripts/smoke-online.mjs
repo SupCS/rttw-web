@@ -26,7 +26,8 @@ const email = `acceptance-${randomUUID()}@example.invalid`; const password = ran
 const identity = await browserOne('/api/web/auth/register', { email, password }, 201);
 await browserTwo('/api/web/auth/login', { email, password });
 await outsider('/api/web/auth/register', { email: `outsider-${randomUUID()}@example.invalid`, password }, 201);
-const householdId = identity.households[0].id;
+assert.equal(identity.households.length, 0);
+const householdId = identity.personalLedger.id;
 const first = await browserOne(`/api/ledger?householdId=${householdId}`);
 assert.ok(first.member.id); assert.equal(first.accounts.length, 0);
 const audit = () => ({ id: randomUUID(), createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), createdByMemberId: null, updatedByMemberId: null, revision: 1, deletedAt: null });

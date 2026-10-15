@@ -1,12 +1,13 @@
 import { useEffect, useState, type CSSProperties } from 'react';
 import { ApiError, logout, request, session, type WebHousehold, type WebSession } from './data/api';
 import { errorText, useLedger } from './data/use-ledger';
-import { dictionaries, languages, type Language, type Text } from './i18n';
+import { dictionaries, type Text } from './i18n';
 import { localeTags } from './i18n';
 import { usePreferences, type Preferences } from './preferences';
 import { themes } from './themes';
 import { themeStyle } from './theme-style';
-import { ErrorMessage, Field } from './components/shared';
+import { ErrorMessage } from './components/shared';
+import { LanguagePicker } from './components/language-picker';
 import { Icon, ui } from './components/design';
 import { TransactionEditor } from './features/transaction-editor';
 import { More } from './features/more';
@@ -18,7 +19,6 @@ import { Recurring } from './features/recurring';
 import { Fx } from './features/fx';
 import { Settings } from './features/settings';
 import { Auth } from './features/auth';
-import { HouseholdCreator } from './features/household';
 
 const pages = ['overview', 'transactions', 'accounts', 'categories', 'recurring', 'fx', 'settings', 'more'] as const;
 type Page = typeof pages[number];
@@ -56,7 +56,7 @@ export function App() {
   const expired = () => { setSession(null); setStatus('loading'); setAttempt((value) => value + 1); };
   return <div className="app" style={themeStyle(theme) as CSSProperties}>
     {status === 'ready' && webSession ? <LedgerShell webSession={webSession} setSession={setSession} preferences={preferences} onExpired={expired} /> : <>
-      <header className="welcome-header"><a className="brand" href="#overview"><span className="brand-symbol"><Icon name="arrow"/></span> wealthy</a><Field label={t.language}><select value={preferences.language} onChange={(event) => preferences.setLanguage(event.target.value as Language)}>{Object.entries(languages).map(([code, value]) => <option key={code} value={code}>{value.flag} {value.label}</option>)}</select></Field></header>
+      <header className="welcome-header"><a className="brand" href="#overview"><span className="brand-symbol"><Icon name="arrow"/></span> wealthy</a><LanguagePicker value={preferences.language} onChange={preferences.setLanguage} label={t.language}/></header>
       <main className="welcome-main">{status === 'loading' ? <p className="empty" role="status">{t.loading}</p> : status === 'error' ? <div className="card"><ErrorMessage message={error} /><button onClick={() => setAttempt((value) => value + 1)}>{t.retry}</button></div> : <Auth t={t} onAuthenticated={authenticated} />}</main>
     </>}
   </div>;
@@ -64,12 +64,18 @@ export function App() {
 
 function LedgerShell({ webSession, setSession, preferences, onExpired }: { webSession: WebSession; setSession: (session: WebSession) => void; preferences: Preferences; onExpired: () => void }) {
   const t = dictionaries[preferences.language];
-  const [householdId, setHouseholdId] = useState(webSession.households[0]?.id ?? '');
+  const [householdId, setHouseholdId] = useState(webSession.personalLedger?.id ?? webSession.households[0]?.id ?? '');
   const [page, setPage] = useState<Page>(currentPage);
   const [entry, setEntry] = useState(false);
   const [error, setError] = useState(''); const [working, setWorking] = useState(false);
   const [inviteToken, setInviteToken] = useState(() => new URLSearchParams(location.search).get('invite') ?? '');
   const ledger = useLedger(householdId, webSession.user.id, onExpired);
+  const isPersonal = householdId === webSession.personalLedger?.id;
+  useEffect(() => {
+    if (householdId !== webSession.personalLedger?.id && !webSession.households.some((household) => household.id === householdId)) {
+      setHouseholdId(webSession.personalLedger?.id ?? webSession.households[0]?.id ?? '');
+    }
+  }, [webSession, householdId]);
   useEffect(() => { const route = () => { setPage(currentPage()); window.scrollTo({top:0}); }; addEventListener('hashchange', route); return () => removeEventListener('hashchange', route); }, []);
   async function householdsChanged(household?: WebHousehold) {
     const result = await session(); setSession(result);
@@ -84,14 +90,14 @@ function LedgerShell({ webSession, setSession, preferences, onExpired }: { webSe
     try { const result = await request<{ household: WebHousehold }>(`/api/web/households/invitations/${encodeURIComponent(inviteToken)}/accept`, {}); await householdsChanged(result.household); setInviteToken(''); const url = new URL(location.href); url.searchParams.delete('invite'); history.replaceState(null, '', url); }
     catch (failure) { setError(errorText(failure, t)); } finally { setWorking(false); }
   }
-  const featureProps = ledger.snapshot ? { snapshot: ledger.snapshot, t, language: preferences.language, locale: localeTags[preferences.language], busy: ledger.busy, command: ledger.command, moneyDisplay: preferences.moneyDisplay } : null;
+  const featureProps = ledger.snapshot?.household.id === householdId ? { snapshot: ledger.snapshot, t, language: preferences.language, locale: localeTags[preferences.language], busy: ledger.busy, command: ledger.command, moneyDisplay: preferences.moneyDisplay, isPersonal } : null;
   const nav = [['accounts','wallet'],['categories','grid'],['transactions','receipt'],['overview','chart'],['more','more']] as const;
   const active = ['settings','recurring','fx'].includes(page) ? 'more' : page;
   return <div className="app-shell">
-    <header className="app-header"><a href="#accounts" className="brand" aria-label="wealthy"><span className="brand-symbol"><Icon name="arrow" size={19}/></span><span>wealthy<span className="brand-period">.</span></span></a><div className="space-selector"><select aria-label={t.household} value={householdId} disabled={working || ledger.busy} onChange={e=>setHouseholdId(e.target.value)}>{webSession.households.map(h=><option value={h.id} key={h.id}>{h.name}</option>)}</select><Icon name="down" size={12}/></div><a className="avatar" href="#more" aria-label={ui(preferences.language,'profile')}>{webSession.user.email.slice(0,1).toUpperCase()}</a></header>
+    <header className="app-header"><a href="#accounts" className="brand" aria-label="wealthy"><span className="brand-symbol"><Icon name="arrow" size={19}/></span><span>wealthy<span className="brand-period">.</span></span></a><div className="space-selector">{webSession.households.length > 0 ? <><select aria-label={t.ledgerSpace} value={householdId} disabled={working || ledger.busy} onChange={e=>setHouseholdId(e.target.value)}>{webSession.personalLedger&&<option value={webSession.personalLedger.id}>{t.personalLedger}</option>}{webSession.households.map(h=><option value={h.id} key={h.id}>{h.name}</option>)}</select><Icon name="down" size={12}/></> : <span>{t.personalLedger}</span>}</div><a className="avatar" href="#more" aria-label={ui(preferences.language,'profile')}>{webSession.user.email.slice(0,1).toUpperCase()}</a></header>
     
     <main id="main-content"><ErrorMessage message={error}/>{inviteToken&&<div className="notice"><p>{t.acceptInvite}</p><button className="primary" disabled={working} onClick={()=>void accept()}>{working?t.loading:t.acceptInvite}</button></div>}
-      {!householdId?<section className="card"><h1>{t.createHousehold}</h1><p>{t.householdHint}</p><HouseholdCreator t={t} onCreated={householdsChanged}/></section>:ledger.loading?<div className="skeleton-page" role="status"><div/><div/><div/>{t.loading}</div>:<>
+      {!householdId?<section className="card"><ErrorMessage message={t.requestError}/></section>:ledger.loading?<div className="skeleton-page" role="status"><div/><div/><div/>{t.loading}</div>:<>
       {ledger.error&&<div className="notice"><ErrorMessage message={errorText(ledger.error,t)}/><button onClick={()=>void ledger.refresh()}>{t.retry}</button></div>}
       {featureProps&&<div key={`${householdId}:${page}`} className={`feature-page page-${page}`}>
         {['settings','recurring','fx'].includes(page)&&<a className="back-link" href="#more"><Icon name="left" size={16}/>{ui(preferences.language,'more')}</a>}
@@ -101,13 +107,13 @@ function LedgerShell({ webSession, setSession, preferences, onExpired }: { webSe
         {page==='overview'&&<Overview {...featureProps} scope={preferences.scope} onScope={preferences.setScope}/>}
         {page==='recurring'&&<Recurring {...featureProps}/>}
         {page==='fx'&&<Fx {...featureProps}/>}
-        {page==='settings'&&<Settings {...featureProps} preferences={preferences} webSession={webSession} refresh={ledger.refresh} onHouseholdsChanged={householdsChanged}/>}
-        {page==='more'&&<More {...featureProps} webSession={webSession} onLogout={()=>void signOut()} onRefresh={()=>void ledger.refresh()}/>}
+        {page==='settings'&&<Settings {...featureProps} preferences={preferences} webSession={webSession} refresh={ledger.refresh} onHouseholdsChanged={householdsChanged} onSelectHousehold={setHouseholdId}/>}
+        {page==='more'&&<More {...featureProps} webSession={webSession} onLogout={()=>void signOut()}/>}
       </div>}
       </>}
     </main>
     {featureProps&&entry&&<TransactionEditor {...featureProps} existing={undefined} onClose={()=>setEntry(false)}/>}
-    {featureProps&&page!=='more'&&page!=='settings'&&<button className="floating-add" disabled={!featureProps.snapshot.accounts.some(a=>!a.deletedAt)} onClick={()=>setEntry(true)} aria-label={t.newTransaction}><Icon name="plus" size={25}/><span>{ui(preferences.language,'add')}</span></button>}
+    {featureProps&&page!=='more'&&page!=='settings'&&featureProps.snapshot.accounts.some(a=>!a.deletedAt)&&<button className="floating-add" disabled={featureProps.busy} onClick={()=>setEntry(true)} aria-label={t.newTransaction}><Icon name="plus" size={25}/><span>{ui(preferences.language,'add')}</span></button>}
     <nav className="bottom-nav" aria-label="wealthy">{nav.map(([value,icon])=><a key={value} href={`#${value}`} className={active===value?'current':''} aria-current={active===value?'page':undefined}><span className="nav-icon"><Icon name={icon} size={22}/></span><span>{value==='more'?ui(preferences.language,'more'):value==='overview'?ui(preferences.language,'analytics'):t[value]}</span></a>)}</nav>
     <div className="desktop-note">wealthy<br/><span>YOUR MONEY. A LITTLE CLEARER.</span></div>
   </div>;

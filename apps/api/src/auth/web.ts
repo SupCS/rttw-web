@@ -89,7 +89,8 @@ export function webAuthFailure(error: unknown, reply: FastifyReply) {
 export function registerWebAuthRoutes(app: FastifyInstance, auth: AuthService, households?: HouseholdService) {
   const snapshot = async (user: { id: string; email: string }) => ({
     user,
-    households: households ? await households.ensureFirst(user) : [],
+    personalLedger: households ? await households.ensurePersonal(user) : null,
+    households: households ? await households.list(user.id) : [],
   });
   for (const action of ['register', 'login'] as const) {
     app.post(`/api/web/auth/${action}`, { config: { rateLimit: { max: action === 'register' ? 5 : 10, timeWindow: '1 minute' } } }, async (request, reply) => {

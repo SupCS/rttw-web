@@ -170,6 +170,7 @@ export class LedgerService {
       const identity = await db.query<IdentityRow>(
         `SELECT h.* FROM households h JOIN household_members m ON m.household_id = h.id
          WHERE h.id = $1 AND m.user_id = $2 AND m.membership_status = 'active'
+         AND (h.personal_owner_user_id IS NULL OR h.personal_owner_user_id = $2)
          AND m.deleted_at IS NULL AND h.deleted_at IS NULL FOR UPDATE OF h`, [householdId, userId],
       );
       const row = identity.rows[0];

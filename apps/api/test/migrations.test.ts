@@ -41,6 +41,15 @@ test('identity migrations apply once and enforce membership and identity constra
   await assert.rejects(insertMembership(householdId, 'admin'), { code: '23514' });
   await insertMembership(householdId);
   await assert.rejects(insertMembership(householdId), { code: '23505' });
+  const personalId = randomUUID();
+  await db.query(`INSERT INTO households (id, name, base_currency_code, created_by_user_id, updated_by_user_id, personal_owner_user_id)
+    VALUES ($1, 'Personal', 'USD', $2, $2, $2)`, [personalId, userId]);
+  await assert.rejects(db.query(`INSERT INTO households (id, name, base_currency_code, created_by_user_id, updated_by_user_id, personal_owner_user_id)
+    VALUES ($1, 'Duplicate personal', 'USD', $2, $2, $2)`, [randomUUID(), userId]), { code: '23505' });
+  const otherUserId = randomUUID();
+  await db.query('INSERT INTO users (id, email, password_hash) VALUES ($1, $2, $3)', [otherUserId, 'other@example.invalid', 'test-only-hash']);
+  await assert.rejects(db.query(`INSERT INTO households (id, name, base_currency_code, created_by_user_id, updated_by_user_id, personal_owner_user_id)
+    VALUES ($1, 'Wrong owner', 'USD', $2, $2, $3)`, [randomUUID(), userId, otherUserId]), { code: '23514' });
   await assert.rejects(db.query(`
     INSERT INTO auth_sessions (
       id, user_id, access_token_hash, refresh_token_hash, access_expires_at, refresh_expires_at
@@ -49,5 +58,5 @@ test('identity migrations apply once and enforce membership and identity constra
   // Rolling back all schema history cannot remove identity/financial records;
   // disposable cache migrations may independently support rollback.
   await assert.rejects(runner({ ...options, direction: 'down', count: migrationCount }));
-  assert.equal((await db.query('SELECT id FROM users')).rows.length, 1);
+  assert.equal((await db.query('SELECT id FROM users')).rows.length, 2);
 });

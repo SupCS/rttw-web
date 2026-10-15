@@ -20,7 +20,7 @@ export function Transactions(props: FeatureProps) {
   const [deleting, setDeleting] = useState<Transaction | null>(null);
   const [undo, setUndo] = useState<{ id: string; revision: number } | null>(null);
   const [error, setError] = useState('');
-  useEffect(() => { let alive = true; void request<{ members: Member[] }>(`/api/web/households/${snapshot.household.id}/members`).then((result) => { if (alive) setMembers(result.members); }).catch(() => {}); return () => { alive = false; }; }, [snapshot.household.id]);
+  useEffect(() => { if (props.isPersonal) return; let alive = true; void request<{ members: Member[] }>(`/api/web/households/${snapshot.household.id}/members`).then((result) => { if (alive) setMembers(result.members); }).catch(() => {}); return () => { alive = false; }; }, [snapshot.household.id, props.isPersonal]);
   const change = (key: keyof Filters, value: string) => setFilters((current) => ({ ...current, [key]: value }));
   const creditIds = new Set(snapshot.transferLinks.filter((item) => !item.deletedAt).map((item) => item.creditTransactionId));
   const retiredTemplates = new Set(snapshot.recurringRules.filter((rule) => rule.payment && rule.templateTransactionId).map((rule) => rule.templateTransactionId));
@@ -67,7 +67,7 @@ export function Transactions(props: FeatureProps) {
       <Field label={t.account}><select value={filters.account} onChange={(event) => change('account', event.target.value)}><option value="">{t.all}</option>{snapshot.accounts.filter((item) => !item.deletedAt).map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></Field>
       <Field label={t.category}><select value={filters.category} onChange={(event) => change('category', event.target.value)}><option value="">{t.all}</option>{snapshot.categories.filter((item) => !item.deletedAt).map((item) => <option key={item.id} value={item.id}>{categoryLabel(item, snapshot.categories, language)}</option>)}</select></Field>
       <Field label={t.currency}><select value={filters.currency} onChange={(event) => change('currency', event.target.value)}><option value="">{t.all}</option>{currencies.map((value) => <option key={value}>{value}</option>)}</select></Field>
-      <Field label={t.member}><select value={filters.member} onChange={(event) => change('member', event.target.value)}><option value="">{t.all}</option>{(members.length ? members : [snapshot.member]).map((item) => <option key={item.id} value={item.id}>{item.displayName}</option>)}</select></Field>
+      {!props.isPersonal&&<Field label={t.member}><select value={filters.member} onChange={(event) => change('member', event.target.value)}><option value="">{t.all}</option>{(members.length ? members : [snapshot.member]).map((item) => <option key={item.id} value={item.id}>{item.displayName}</option>)}</select></Field>}
       <Field label={t.source}><select value={filters.source} onChange={(event) => change('source', event.target.value)}><option value="">{t.all}</option>{(['manual', 'import', 'recurring', 'bank_api'] as const).map((value) => <option value={value} key={value}>{value === 'recurring' ? t.recurring : t[value]}</option>)}</select></Field>
       <Field label={t.type}><select value={filters.type} onChange={(event) => change('type', event.target.value)}><option value="">{t.all}</option>{(['expense', 'income', 'transfer', 'refund', 'adjustment', 'debt_payment'] as const).map((value) => <option key={value} value={value}>{t[value]}</option>)}</select></Field>
     </div><button onClick={() => setFilters(emptyFilters)}>{t.reset}</button></details>

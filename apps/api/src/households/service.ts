@@ -12,21 +12,23 @@ export class HouseholdError extends Error {
 type Queryable = Pick<PoolClient, 'query'>;
 type HouseholdRow = { id: string; name: string; base_currency_code: MoneyCurrencyCode; member_id: string; role: 'owner' | 'member' };
 
-async function listHouseholds(database: Queryable, userId: string): Promise<WebHousehold[]> {
+async function listHouseholds(database: Queryable, userId: string, personal = false): Promise<WebHousehold[]> {
   const result = await database.query<HouseholdRow>(`
     SELECT h.id, h.name, h.base_currency_code, m.id AS member_id, m.role
     FROM household_members m JOIN households h ON h.id = m.household_id
     WHERE m.user_id = $1 AND m.membership_status = 'active' AND m.deleted_at IS NULL AND h.deleted_at IS NULL
+      AND CASE WHEN $2 THEN h.personal_owner_user_id = $1 ELSE h.personal_owner_user_id IS NULL END
     ORDER BY h.created_at, h.id
-  `, [userId]);
+  `, [userId, personal]);
   return result.rows.map((row) => ({ id: row.id, name: row.name, baseCurrency: row.base_currency_code, memberId: row.member_id, role: row.role }));
 }
 
 async function authorize(database: Queryable, userId: string, householdId: string, owner = false) {
-  const result = await database.query<{ id: string; role: string }>(`
-    SELECT m.id, m.role FROM household_members m JOIN households h ON h.id = m.household_id
+  const result = await database.query<{ id: string; role: string; personal_owner_user_id: string | null }>(`
+    SELECT m.id, m.role, h.personal_owner_user_id FROM household_members m JOIN households h ON h.id = m.household_id
     WHERE m.household_id = $1 AND m.user_id = $2 AND m.membership_status = 'active'
       AND m.deleted_at IS NULL AND h.deleted_at IS NULL
+      AND (h.personal_owner_user_id IS NULL OR h.personal_owner_user_id = $2)
     FOR SHARE OF m, h
   `, [householdId, userId]);
   const member = result.rows[0];
@@ -35,11 +37,11 @@ async function authorize(database: Queryable, userId: string, householdId: strin
   return member;
 }
 
-async function insertHousehold(database: Queryable, user: PublicUser, input: { name: string; baseCurrency: MoneyCurrencyCode }): Promise<WebHousehold> {
+async function insertHousehold(database: Queryable, user: PublicUser, input: { name: string; baseCurrency: MoneyCurrencyCode }, personal = false): Promise<WebHousehold> {
   const id = randomUUID();
   const memberId = randomUUID();
-  await database.query(`INSERT INTO households (id, name, base_currency_code, created_by_user_id, updated_by_user_id)
-    VALUES ($1, $2, $3, $4, $4)`, [id, input.name, input.baseCurrency, user.id]);
+  await database.query(`INSERT INTO households (id, name, base_currency_code, created_by_user_id, updated_by_user_id, personal_owner_user_id)
+    VALUES ($1, $2, $3, $4, $4, $5)`, [id, input.name, input.baseCurrency, user.id, personal ? user.id : null]);
   await database.query(`INSERT INTO household_members
     (id, household_id, user_id, display_name, role, membership_status, created_by_user_id, updated_by_user_id)
     VALUES ($1, $2, $3, $4, 'owner', 'active', $3, $3)`, [memberId, id, user.id, user.email.split('@')[0]?.slice(0, 120) || 'Member']);
@@ -51,13 +53,13 @@ export class HouseholdService {
 
   async list(userId: string) { return listHouseholds(this.database, userId); }
 
-  async ensureFirst(user: PublicUser): Promise<WebHousehold[]> {
+  async ensurePersonal(user: PublicUser): Promise<WebHousehold> {
     return this.transaction(async (client) => {
-      // Serializes first-household creation across simultaneous tabs/devices.
+      // Serializes personal-ledger creation across simultaneous tabs/devices.
       await client.query('SELECT id FROM users WHERE id = $1 AND deleted_at IS NULL FOR UPDATE', [user.id]);
-      const existing = await listHouseholds(client, user.id);
-      if (existing.length) return existing;
-      return [await insertHousehold(client, user, { name: 'My household', baseCurrency: 'USD' })];
+      const [existing] = await listHouseholds(client, user.id, true);
+      if (existing) return existing;
+      return insertHousehold(client, user, { name: 'Personal', baseCurrency: 'USD' }, true);
     });
   }
 
@@ -69,12 +71,12 @@ export class HouseholdService {
   async settings(user: PublicUser, householdId: string, input: { name: string; baseCurrency: MoneyCurrencyCode }): Promise<WebHousehold> {
     if (!input.name.trim() || input.name.length > 120 || !Object.hasOwn(currencyMetadata, input.baseCurrency)) throw new HouseholdError('invalid_request', 400);
     return this.transaction(async (client) => {
-      await authorize(client, user.id, householdId, true);
+      const member = await authorize(client, user.id, householdId, true);
       // A reporting-currency preference never rewrites historical ledger/FX data.
       await client.query(`UPDATE households SET name = $3, base_currency_code = $4,
         updated_by_user_id = $2, updated_at = now(), revision = revision + 1
         WHERE id = $1 AND deleted_at IS NULL`, [householdId, user.id, input.name.trim(), input.baseCurrency]);
-      const household = (await listHouseholds(client, user.id)).find((entry) => entry.id === householdId);
+      const household = (await listHouseholds(client, user.id, member.personal_owner_user_id !== null)).find((entry) => entry.id === householdId);
       if (!household) throw new HouseholdError('household_forbidden', 403);
       return household;
     });
@@ -82,7 +84,8 @@ export class HouseholdService {
 
   async members(userId: string, householdId: string): Promise<WebMember[]> {
     return this.transaction(async (client) => {
-      await authorize(client, userId, householdId);
+      const member = await authorize(client, userId, householdId);
+      if (member.personal_owner_user_id) throw new HouseholdError('household_forbidden', 403);
       const result = await client.query<{ id: string; user_id: string; display_name: string; email: string; role: 'owner' | 'member' }>(`
         SELECT m.id, m.user_id, m.display_name, u.email, m.role
         FROM household_members m JOIN users u ON u.id = m.user_id
@@ -95,7 +98,8 @@ export class HouseholdService {
 
   async invite(user: PublicUser, householdId: string, email: string) {
     return this.transaction(async (client) => {
-      await authorize(client, user.id, householdId, true);
+      const member = await authorize(client, user.id, householdId, true);
+      if (member.personal_owner_user_id) throw new HouseholdError('household_forbidden', 403);
       const normalized = email.trim().toLowerCase();
       const existing = await client.query(`SELECT m.id FROM household_members m JOIN users u ON u.id = m.user_id
         WHERE m.household_id = $1 AND u.email = $2 AND m.membership_status = 'active' AND m.deleted_at IS NULL`, [householdId, normalized]);
@@ -112,7 +116,7 @@ export class HouseholdService {
     return this.transaction(async (client) => {
       const invitation = await client.query<{ id: string; household_id: string }>(`
         SELECT i.id, i.household_id FROM household_invitations i
-        JOIN households h ON h.id = i.household_id AND h.deleted_at IS NULL
+        JOIN households h ON h.id = i.household_id AND h.deleted_at IS NULL AND h.personal_owner_user_id IS NULL
         JOIN household_members owner ON owner.household_id = h.id AND owner.user_id = i.invited_by_user_id
           AND owner.role = 'owner' AND owner.membership_status = 'active' AND owner.deleted_at IS NULL
         WHERE i.token_hash = $1 AND i.email = $2 AND i.accepted_at IS NULL AND i.expires_at > now()

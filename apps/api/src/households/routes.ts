@@ -14,7 +14,7 @@ function failure(error: unknown, reply: FastifyReply) {
 
 export function registerHouseholdRoutes(app: FastifyInstance, auth: AuthService, households: HouseholdService) {
   app.get('/api/web/households', async (request, reply) => {
-    try { const user = await authenticateWebRequest(request, auth); return { households: await households.ensureFirst(user) }; }
+    try { const user = await authenticateWebRequest(request, auth); return { households: await households.list(user.id) }; }
     catch (error) { return failure(error, reply); }
   });
   app.post('/api/web/households', async (request, reply) => {

@@ -59,7 +59,7 @@ export async function request<T>(path: string, body?: unknown): Promise<T> {
 
 export type WebUser = { id: string; email: string };
 export type WebHousehold = { id: string; name: string; baseCurrency: MoneyCurrencyCode; memberId: string; role: 'owner' | 'member' };
-export type WebSession = { user: WebUser; households: WebHousehold[] };
+export type WebSession = { user: WebUser; personalLedger: WebHousehold | null; households: WebHousehold[] };
 export const session = () => request<WebSession>('/api/web/auth/session');
 export const authenticate = (mode: 'login' | 'register', email: string, password: string) => request<WebSession>(`/api/web/auth/${mode}`, { email, password });
 export const logout = () => request<void>('/api/web/auth/logout', {});
