@@ -112,6 +112,14 @@ export type TransferLink = AuditFields & Readonly<{
   receivedAmount: Money;
 }>;
 
+export type MonthlyBudget = AuditFields & Readonly<{
+  ledgerId: string;
+  month: string;
+  currency: MoneyCurrencyCode;
+  totalLimitMinor: string | null;
+  categoryLimits: Array<Readonly<{ categoryId: string; limitMinor: string }>>;
+}>;
+
 export type LedgerSnapshot = Readonly<{
   ledger: PersonalLedger;
   userId: string;
@@ -121,9 +129,12 @@ export type LedgerSnapshot = Readonly<{
   splits: TransactionSplit[];
   transferLinks: TransferLink[];
   recurringRules: RecurringRule[];
+  budgets: MonthlyBudget[];
 }>;
 
 export type LedgerCommand =
+  | { type: 'budget.save'; budget: MonthlyBudget; expectedRevision?: number }
+  | { type: 'budget.delete'; id: string; expectedRevision: number }
   | { type: 'account.save'; account: Account; expectedRevision?: number }
   | { type: 'account.delete'; id: string; expectedRevision: number; asOf: string; expectedBalances: WireMoney[]; destinationAccountId: string | null }
   | { type: 'category.delete'; id: string; expectedRevision: number }
@@ -155,6 +166,7 @@ export type LedgerBackup = Readonly<{
   splits: TransactionSplit[];
   transferLinks: TransferLink[];
   recurringRules: RecurringRule[];
+  budgets: MonthlyBudget[];
   recurringOccurrences: Array<{ ruleId: string; occurrenceDate: string; transactionId: string }>;
 }>;
 

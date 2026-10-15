@@ -5,6 +5,12 @@ import type { Text } from '../i18n';
 
 export function errorText(error: unknown, t: Text): string {
   if (!(error instanceof ApiError)) return t.requestError;
+  if (error.code === 'invalid_budget') return t.budgetInvalid;
+  if (error.code === 'budget_month_exists') return t.budgetExists;
+  if (['budget_month_locked', 'budget_deleted'].includes(error.code)) return t.conflictError;
+  if (error.code === 'budget_category_invalid') return t.budgetCategoryError;
+  if (error.code === 'category_has_budget') return t.budgetCategoryInUse;
+  if (error.code === 'budget_limit_overflow') return t.budgetOverflow;
   if (error.code === 'revision_conflict' || error.code === 'conflict') return t.conflictError;
   if (error.code === 'balance_changed') return t.balanceChanged;
   if (error.code === 'account_deleted') return t.deletedAccountHistory;

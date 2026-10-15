@@ -62,7 +62,17 @@ export const recurringSchema = z.object({
   startsOn: dateSchema, endsOn: dateSchema.nullable(), isActive: z.boolean(),
 }).strict();
 const revision = z.number().int().nonnegative().nullable();
+const positiveLimit = moneySchema.shape.amountMinor.refine(value => /^[1-9]\d*$/.test(value) && BigInt(value) > 0n);
+export const budgetSchema = z.object({
+  ...audit, ledgerId: z.uuid(),
+  month: z.string().regex(/^(?!0000)\d{4}-(?:0[1-9]|1[0-2])$/), currency,
+  totalLimitMinor: positiveLimit.nullable(),
+  categoryLimits: z.array(z.object({ categoryId: idSchema, limitMinor: positiveLimit }).strict()).max(500),
+}).strict().refine(value => value.totalLimitMinor !== null || value.categoryLimits.length > 0)
+  .refine(value => new Set(value.categoryLimits.map(limit => limit.categoryId)).size === value.categoryLimits.length);
 export const commandSchema = z.discriminatedUnion('type', [
+  z.object({ type: z.literal('budget.save'), budget: budgetSchema, expectedRevision: revision.optional() }).strict(),
+  z.object({ type: z.literal('budget.delete'), id: idSchema, expectedRevision: revision }).strict(),
   z.object({ type: z.literal('account.save'), account: accountSchema, expectedRevision: revision.optional() }).strict(),
   z.object({ type: z.literal('account.delete'), id: idSchema, expectedRevision: revision, asOf: dateSchema, expectedBalances: z.array(moneySchema).min(1).max(32), destinationAccountId: idSchema.nullable() }).strict(),
   z.object({ type: z.literal('category.delete'), id: idSchema, expectedRevision: revision }).strict(),
@@ -79,6 +89,7 @@ export const backupSchema = z.object({
   accounts: z.array(accountSchema).max(10000), categories: z.array(categorySchema).max(10000),
   transactions: z.array(transactionSchema).max(100000), splits: z.array(splitSchema).max(500000),
   transferLinks: z.array(transferSchema).max(50000), recurringRules: z.array(recurringSchema).max(10000),
+  budgets: z.array(budgetSchema).max(12000).default([]),
   recurringOccurrences: z.array(z.object({ ruleId: idSchema, occurrenceDate: dateSchema, transactionId: idSchema }).strict()).max(100000),
 }).strict();
 

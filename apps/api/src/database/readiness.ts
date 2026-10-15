@@ -8,6 +8,7 @@ export async function checkDatabaseReadiness(database: Pick<Pool, 'query'>): Pro
     AND to_regclass('public.ledger_entities') IS NOT NULL
     AND to_regclass('public.ledger_recurring_occurrences') IS NOT NULL
     AND to_regclass('public.ledger_operation_receipts') IS NOT NULL
+    AND to_regclass('public.ledger_budget_month_unique') IS NOT NULL
     AND to_regclass('public.web_fx_cache') IS NOT NULL AS ready`);
   if (!result.rows[0]?.ready) throw new Error('Database schema is not ready');
 }

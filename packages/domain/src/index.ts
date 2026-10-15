@@ -3,3 +3,4 @@ export * from './money/money.js';
 export * from './ledger/types.js';
 export * from './recurring/schedule.js';
 export * from './categories/appearance.js';
+export * from './budgets/monthly.js';

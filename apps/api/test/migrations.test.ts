@@ -7,6 +7,29 @@ import { runner } from 'node-pg-migrate';
 import type { ClientBase } from 'pg';
 import { migrationOptions } from '../src/database/migrations.js';
 import { checkDatabaseReadiness } from '../src/database/readiness.js';
+import { createLocalDatabasePool } from '../src/database/local.js';
+
+test('monthly budget migration preserves personal data and enforces one active plan per month', async t => {
+  const pool = createLocalDatabasePool(new PGlite()); t.after(() => pool.end());
+  const count = (await readdir(migrationOptions.dir)).filter(name => name.endsWith('.sql')).length;
+  const options = { ...migrationOptions, dbClient: pool as unknown as ClientBase };
+  await runner({ ...options, count: count - 1 });
+  const userId = randomUUID(), ledgerId = randomUUID();
+  await pool.query("INSERT INTO users(id,email,password_hash) VALUES($1,'budget-upgrade@example.invalid','test')", [userId]);
+  await pool.query("INSERT INTO personal_ledgers(id,owner_user_id,base_currency_code,created_by_user_id,updated_by_user_id) VALUES($1,$2,'USD',$2,$2)", [ledgerId, userId]);
+  const entity = { id: 'kept', ledgerId, revision: 1, originalAmount: { currency: 'USD', amountMinor: '-9007199254740993' }, transactionDate: '2026-10-01', fxSnapshot: { rate: '1.00001' } };
+  await pool.query("INSERT INTO ledger_entities(ledger_id,entity_kind,id,revision,entity) VALUES($1,'transaction','kept',1,$2)", [ledgerId, JSON.stringify(entity)]);
+  await assert.rejects(checkDatabaseReadiness(pool));
+  assert.equal((await runner(options)).length, 1);
+  await checkDatabaseReadiness(pool);
+  assert.deepEqual((await pool.query('SELECT entity FROM ledger_entities WHERE id=$1', ['kept'])).rows[0]?.entity, entity);
+  const plan = { id: 'plan', ledgerId, revision: 1, month: '2026-10', deletedAt: null };
+  await pool.query("INSERT INTO ledger_entities(ledger_id,entity_kind,id,revision,entity) VALUES($1,'budget','plan',1,$2)", [ledgerId, JSON.stringify(plan)]);
+  await assert.rejects(pool.query("INSERT INTO ledger_entities(ledger_id,entity_kind,id,revision,entity) VALUES($1,'budget','duplicate',1,$2)", [ledgerId, JSON.stringify({ ...plan, id: 'duplicate' })]), { code: '23505' });
+  await pool.query("UPDATE ledger_entities SET entity=jsonb_set(entity,'{deletedAt}',to_jsonb(now())) WHERE id='plan'");
+  await pool.query("INSERT INTO ledger_entities(ledger_id,entity_kind,id,revision,entity) VALUES($1,'budget','replacement',1,$2)", [ledgerId, JSON.stringify({ ...plan, id: 'replacement' })]);
+  assert.equal((await runner(options)).length, 0);
+});
 
 test('personal-only reset removes financial and membership data while retaining users and sessions', async (t) => {
   const db = new PGlite(); t.after(() => db.close());
@@ -17,9 +40,11 @@ test('personal-only reset removes financial and membership data while retaining 
     return (await db.exec(sql)).at(-1) ?? { rows: [] };
   } } as unknown as ClientBase;
   const options = { ...migrationOptions, dbClient };
-  const count = (await readdir(migrationOptions.dir)).filter(name => name.endsWith('.sql')).length;
+  const migrations = (await readdir(migrationOptions.dir)).filter(name => name.endsWith('.sql')).sort();
+  const count = migrations.length;
+  const legacyCount = migrations.indexOf('1792300000000_personal-only-reset.sql');
   await assert.rejects(checkDatabaseReadiness(dbClient as never));
-  await runner({ ...options, count: count - 1 });
+  await runner({ ...options, count: legacyCount });
   const userId = randomUUID(), householdId = randomUUID(), memberId = randomUUID(), sessionId = randomUUID();
   await db.query("INSERT INTO users(id,email,password_hash) VALUES($1,'retained@example.invalid','retained-hash')", [userId]);
   await db.query("INSERT INTO households(id,name,base_currency_code,created_by_user_id,updated_by_user_id) VALUES($1,'Legacy','USD',$2,$2)", [householdId, userId]);
@@ -29,7 +54,7 @@ test('personal-only reset removes financial and membership data while retaining 
   await db.query("INSERT INTO web_recurring_occurrences(household_id,rule_id,occurrence_date,transaction_id) VALUES($1,'old-rule','2026-10-01','old-transaction')", [householdId]);
   await db.query('INSERT INTO web_operation_receipts(household_id,member_id,request_id,payload_sha256) VALUES($1,$2,$3,$4)', [householdId, memberId, randomUUID(), 'd'.repeat(64)]);
   await db.query("INSERT INTO auth_sessions(id,user_id,access_token_hash,refresh_token_hash,access_expires_at,refresh_expires_at) VALUES($1,$2,$3,$4,now()+interval '15 minutes',now()+interval '30 days')", [sessionId, userId, 'a'.repeat(64), 'b'.repeat(64)]);
-  assert.equal((await runner(options)).length, 1);
+  assert.equal((await runner(options)).length, count - legacyCount);
   await checkDatabaseReadiness(dbClient as never);
   assert.equal((await runner(options)).length, 0);
   assert.equal((await db.query('SELECT password_hash FROM users WHERE id=$1', [userId])).rows[0]?.password_hash, 'retained-hash');

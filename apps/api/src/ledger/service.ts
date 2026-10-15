@@ -2,24 +2,24 @@ import { createHash, randomUUID } from 'node:crypto';
 import { isDeepStrictEqual } from 'node:util';
 import type { Pool, PoolClient } from 'pg';
 import { convertMoney, money, occurrencesThrough, recurringTemplate, getRecurringPayment } from '@rttw/domain';
-import type { Account, AuditFields, Category, PersonalLedger, LedgerSnapshot, RecurringRule, Transaction, TransactionSplit, TransferLink } from '@rttw/domain';
+import type { Account, AuditFields, Category, MonthlyBudget, PersonalLedger, LedgerSnapshot, RecurringRule, Transaction, TransactionSplit, TransferLink } from '@rttw/domain';
 import type { FxService } from '../fx/service.js';
-import { backupSchema, commandSchema, dateSchema, moneySchema, type LedgerBackup, type ParsedCommand } from './schemas.js';
+import { backupSchema, budgetSchema, commandSchema, dateSchema, moneySchema, type LedgerBackup, type ParsedCommand } from './schemas.js';
 import { defaultCategories } from './defaults.js';
 
 export class LedgerError extends Error {
   constructor(readonly code: string, readonly statusCode = 400) { super(code); }
 }
 
-type Kind = 'account' | 'category' | 'transaction' | 'split' | 'transfer' | 'recurring';
-type Entity = Account | Category | Transaction | TransactionSplit | TransferLink | RecurringRule;
+type Kind = 'account' | 'category' | 'transaction' | 'split' | 'transfer' | 'recurring' | 'budget';
+type Entity = Account | Category | Transaction | TransactionSplit | TransferLink | RecurringRule | MonthlyBudget;
 type IdentityRow = {
   id: string; owner_user_id: string; base_currency_code: PersonalLedger['baseCurrency']; created_at: Date; updated_at: Date;
   created_by_user_id: string; updated_by_user_id: string; revision: string | number; deleted_at: Date | null;
 };
 type Context = { db: PoolClient; ledgerId: string; userId: string; ledger: PersonalLedger; state: LedgerSnapshot; now: string };
-const kinds: ReadonlyArray<[Kind, keyof Pick<LedgerSnapshot, 'accounts' | 'categories' | 'transactions' | 'splits' | 'transferLinks' | 'recurringRules'>]> = [
-  ['account', 'accounts'], ['category', 'categories'], ['transaction', 'transactions'], ['split', 'splits'], ['transfer', 'transferLinks'], ['recurring', 'recurringRules'],
+const kinds: ReadonlyArray<[Kind, keyof Pick<LedgerSnapshot, 'accounts' | 'categories' | 'transactions' | 'splits' | 'transferLinks' | 'recurringRules' | 'budgets'>]> = [
+  ['account', 'accounts'], ['category', 'categories'], ['transaction', 'transactions'], ['split', 'splits'], ['transfer', 'transferLinks'], ['recurring', 'recurringRules'], ['budget', 'budgets'],
 ];
 function fail(code: string, status = 400): never { throw new LedgerError(code, status); }
 const iso = (value: Date | string) => new Date(value).toISOString();
@@ -96,9 +96,9 @@ export class LedgerService {
       const dates = await ctx.db.query<{ rule_id: string; occurrence_date: string; transaction_id: string }>(
         'SELECT rule_id, occurrence_date::text, transaction_id FROM ledger_recurring_occurrences WHERE ledger_id = $1 ORDER BY rule_id, occurrence_date', [ledgerId],
       );
-      const { ledger, accounts, categories, transactions, splits, transferLinks, recurringRules } = ctx.state;
+      const { ledger, accounts, categories, transactions, splits, transferLinks, recurringRules, budgets } = ctx.state;
       // Identity/audit references are mapped on restore; user records are never exported.
-      return { format: 'rttw-web-ledger', version: 2, exportedAt: ctx.now, ledger, accounts, categories, transactions, splits, transferLinks, recurringRules,
+      return { format: 'rttw-web-ledger', version: 2, exportedAt: ctx.now, ledger, accounts, categories, transactions, splits, transferLinks, recurringRules, budgets,
         recurringOccurrences: dates.rows.map((row) => ({ ruleId: row.rule_id, occurrenceDate: row.occurrence_date, transactionId: row.transaction_id })) };
     });
   }
@@ -106,7 +106,7 @@ export class LedgerService {
   async previewBackup(userId: string, value: unknown) {
     return this.restoreBackup(userId, value, true).then((snapshot) => ({
       accounts: snapshot.accounts.length, categories: snapshot.categories.length, transactions: snapshot.transactions.length,
-      splits: snapshot.splits.length, transferLinks: snapshot.transferLinks.length, recurringRules: snapshot.recurringRules.length,
+      splits: snapshot.splits.length, transferLinks: snapshot.transferLinks.length, recurringRules: snapshot.recurringRules.length, budgets: snapshot.budgets.length,
       baseCurrency: snapshot.ledger.baseCurrency,
     }));
   }
@@ -129,7 +129,7 @@ export class LedgerService {
       }
       const mapped = <T extends Entity>(entity: T): T => ({ ...entity, ledgerId, createdAt: ctx.now, updatedAt: ctx.now, revision: 1, createdByUserId: ctx.userId, updatedByUserId: ctx.userId });
       ctx.state = { ...ctx.state, accounts: backup.accounts.map(mapped), categories: backup.categories.map(mapped),
-        transactions: backup.transactions.map(mapped), splits: backup.splits.map(mapped), transferLinks: backup.transferLinks.map(mapped), recurringRules: backup.recurringRules.map(mapped) };
+        transactions: backup.transactions.map(mapped), splits: backup.splits.map(mapped), transferLinks: backup.transferLinks.map(mapped), recurringRules: backup.recurringRules.map(mapped), budgets: backup.budgets.map(mapped) };
       this.validateWholeLedger(ctx);
       const occurrenceKeys = new Set<string>();
       const occurrenceTransactions = new Set<string>();
@@ -181,7 +181,7 @@ export class LedgerService {
       const ledger: PersonalLedger = { id: ledgerId, baseCurrency: row.base_currency_code,
         createdAt: iso(row.created_at), updatedAt: iso(row.updated_at), createdByUserId: row.created_by_user_id,
         updatedByUserId: row.updated_by_user_id, revision: Number(row.revision), deletedAt: null };
-      const state: LedgerSnapshot = { ledger, userId, accounts: [], categories: [], transactions: [], splits: [], transferLinks: [], recurringRules: [] };
+      const state: LedgerSnapshot = { ledger, userId, accounts: [], categories: [], transactions: [], splits: [], transferLinks: [], recurringRules: [], budgets: [] };
       const entities = await db.query<{ entity_kind: Kind; entity: Entity }>('SELECT entity_kind, entity FROM ledger_entities WHERE ledger_id=$1 ORDER BY id', [ledgerId]);
       for (const result of entities.rows) {
         const key = kinds.find(([kind]) => kind === result.entity_kind)?.[1];
@@ -241,6 +241,7 @@ export class LedgerService {
 
   private category(ctx: Context, value: Category) {
     this.scope(ctx, value);
+    if (value.applicability === 'income' && ctx.state.budgets.some(budget => !budget.deletedAt && budget.categoryLimits.some(limit => limit.categoryId === value.id))) fail('category_has_budget');
     const seen = new Set([value.id]);
     let parentId = value.parentId;
     while (parentId) {
@@ -344,7 +345,20 @@ export class LedgerService {
     if (rule.templateTransactionId && ctx.state.recurringRules.some((other) => other.id !== rule.id && other.templateTransactionId === rule.templateTransactionId && other.deletedAt === null)) fail('recurring_rule_exists', 409);
   }
 
+  private budget(ctx: Context, value: MonthlyBudget, previous?: MonthlyBudget, restoring = false) {
+    this.scope(ctx, value);
+    if (!budgetSchema.safeParse(value).success) fail('invalid_budget');
+    if (previous && previous.month !== value.month) fail('budget_month_locked', 409);
+    if (!value.deletedAt && ctx.state.budgets.some(other => other.id !== value.id && !other.deletedAt && other.month === value.month)) fail('budget_month_exists', 409);
+    for (const limit of value.categoryLimits) {
+      const category = ctx.state.categories.find(item => item.id === limit.categoryId);
+      if (!category || !value.deletedAt && category.applicability === 'income') fail('budget_category_invalid');
+      if (category.deletedAt && !restoring && !previous?.categoryLimits.some(item => item.categoryId === category.id)) fail('budget_category_invalid');
+    }
+  }
+
   private validateWholeLedger(ctx: Context) {
+    for (const budget of ctx.state.budgets) this.budget(ctx, budget, undefined, true);
     for (const account of ctx.state.accounts) this.account(ctx, account);
     for (const category of ctx.state.categories) this.category(ctx, category);
     for (const transaction of ctx.state.transactions) this.transaction(ctx, transaction, ctx.state.splits.filter((split) => split.transactionId === transaction.id && (split.deletedAt === null || transaction.deletedAt !== null && split.deletedAt === transaction.deletedAt)), transaction, false, true);
@@ -367,6 +381,21 @@ export class LedgerService {
 
   private async apply(ctx: Context, command: ParsedCommand) {
     switch (command.type) {
+      case 'budget.save': {
+        const previous = ctx.state.budgets.find(item => item.id === command.budget.id);
+        if (previous?.deletedAt) fail('budget_deleted', 409);
+        this.expected(previous, command.expectedRevision);
+        this.scope(ctx, command.budget);
+        const budget = this.audit(ctx, command.budget, previous);
+        this.budget(ctx, budget, previous);
+        await this.persist(ctx, 'budget', budget); return;
+      }
+      case 'budget.delete': {
+        const previous = ctx.state.budgets.find(item => item.id === command.id && !item.deletedAt);
+        if (!previous) fail('budget_not_found', 404);
+        this.expected(previous, command.expectedRevision);
+        await this.persist(ctx, 'budget', { ...this.audit(ctx, previous, previous), deletedAt: ctx.now }); return;
+      }
       case 'account.save': {
         const previous = ctx.state.accounts.find((item) => item.id === command.account.id);
         if (previous?.deletedAt) fail('account_deleted', 409);
@@ -492,6 +521,19 @@ export class LedgerService {
           const splits = [...combined].map(([categoryId, amount]) => ({ categoryId, amount: { currency: payment.originalAmount.currency, amountMinor: amount.toString() } }));
           const categoryId = splits.length === 1 ? splits[0]!.categoryId : payment.categoryId === source.id ? target.id : payment.categoryId;
           await this.persist(ctx, 'recurring', this.audit(ctx, { ...rule, payment: { ...payment, categoryId, splits: splits.length === 1 ? [] : splits } }, rule));
+        }
+        for (const budget of [...ctx.state.budgets]) {
+          if (budget.deletedAt || !budget.categoryLimits.some(limit => limit.categoryId === source.id)) continue;
+          const limits = new Map<string, bigint>();
+          for (const limit of budget.categoryLimits) {
+            const categoryId = limit.categoryId === source.id ? target.id : limit.categoryId;
+            const amount = (limits.get(categoryId) ?? 0n) + BigInt(limit.limitMinor);
+            if (amount > 9223372036854775807n) fail('budget_limit_overflow');
+            limits.set(categoryId, amount);
+          }
+          const next = { ...budget, categoryLimits: [...limits].map(([categoryId, amount]) => ({ categoryId, limitMinor: amount.toString() })) };
+          this.budget(ctx, next, budget);
+          await this.persist(ctx, 'budget', this.audit(ctx, next, budget));
         }
         await this.persist(ctx, 'category', { ...this.audit(ctx, source, source), isArchived: false, deletedAt: ctx.now }); return;
       }

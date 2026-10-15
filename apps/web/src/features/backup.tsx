@@ -5,12 +5,12 @@ import { errorText } from '../data/use-ledger';
 import { today } from '../format';
 import { ErrorMessage, Field, type FeatureProps } from '../components/shared';
 
-type Preview = { accounts: number; categories: number; transactions: number; baseCurrency: string };
+type Preview = { accounts: number; categories: number; transactions: number; budgets: number; baseCurrency: string };
 export function Backup({ refresh, ...props }: FeatureProps & { refresh: () => Promise<void> }) {
   const { snapshot, t } = props; const [error, setError] = useState(''); const [working, setWorking] = useState(false);
   const [preview, setPreview] = useState<{ backup: unknown; counts: Preview } | null>(null);
   const [confirmation, setConfirmation] = useState(false);
-  const empty = snapshot.accounts.length === 0 && snapshot.transactions.length === 0;
+  const empty = snapshot.accounts.length === 0 && snapshot.transactions.length === 0 && snapshot.budgets.length === 0;
   async function exportBackup() {
     setWorking(true); setError('');
     try {
@@ -36,7 +36,7 @@ export function Backup({ refresh, ...props }: FeatureProps & { refresh: () => Pr
   }
   return <section className="card"><h2>{t.backup}</h2><p className="hint">{t.restoreHint}</p><button disabled={working || props.busy} onClick={() => void exportBackup()}>{working ? t.loading : t.exportBackup}</button>
     <><Field label={t.chooseBackup}><input type="file" accept="application/json,.json" disabled={working || props.busy || !empty} onChange={(event) => void selectFile(event)} /></Field>
-      {preview && <div className="backup-preview"><h3>{t.preview}</h3><dl><dt>{t.accounts}</dt><dd>{preview.counts.accounts}</dd><dt>{t.categories}</dt><dd>{preview.counts.categories}</dd><dt>{t.transactions}</dt><dd>{preview.counts.transactions}</dd><dt>{t.baseCurrency}</dt><dd>{preview.counts.baseCurrency}</dd></dl><label className="check"><input type="checkbox" checked={confirmation} onChange={(event) => setConfirmation(event.target.checked)} />{t.confirmRestore}</label><div className="actions"><button className="primary" disabled={working || props.busy || !confirmation || !empty} onClick={() => void restore()}>{working ? t.saving : t.restore}</button><button disabled={working} onClick={() => setPreview(null)}>{t.cancel}</button></div></div>}
+      {preview && <div className="backup-preview"><h3>{t.preview}</h3><dl><dt>{t.accounts}</dt><dd>{preview.counts.accounts}</dd><dt>{t.categories}</dt><dd>{preview.counts.categories}</dd><dt>{t.transactions}</dt><dd>{preview.counts.transactions}</dd><dt>{t.budgets}</dt><dd>{preview.counts.budgets}</dd><dt>{t.baseCurrency}</dt><dd>{preview.counts.baseCurrency}</dd></dl><label className="check"><input type="checkbox" checked={confirmation} onChange={(event) => setConfirmation(event.target.checked)} />{t.confirmRestore}</label><div className="actions"><button className="primary" disabled={working || props.busy || !confirmation || !empty} onClick={() => void restore()}>{working ? t.saving : t.restore}</button><button disabled={working} onClick={() => setPreview(null)}>{t.cancel}</button></div></div>}
     </><ErrorMessage message={error} />
   </section>;
 }

@@ -1,6 +1,8 @@
 import type { CSSProperties } from 'react';
 import type { Language } from '../i18n';
 const paths: Record<string,string> = {
+ copy:'M8 8h13v13H8V8ZM16 4V3H3v13h1',
+ target:'M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Zm-4 0a5 5 0 1 1-10 0 5 5 0 0 1 10 0Zm-5-1v2m-1-1h2',
  wallet:'M3 7V5a2 2 0 0 1 2-2h13v4M3 7h16a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7Zm12 5h6v5h-6v-5Z',
  card:'M3 7h18M3 11h18M6 16h4M5 3h14a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2Z',
  grid:'M3 3h7v7H3zM14 3h7v7h-7zM3 14h7v7H3zM14 14h7v7h-7z',
@@ -28,4 +30,4 @@ const words={
 } as const;
 export function ui(language:Language,key:keyof typeof words){return words[key][language==='en'?0:language==='uk'?1:2]}
 export function Heading({title,subtitle,action}:{title:string;subtitle?:string;action?:React.ReactNode}){return <div className="page-heading"><div>{subtitle&&<p className="eyebrow">{subtitle}</p>}<h1>{title}</h1></div>{action}</div>}
-export function MonthPicker({value,onChange,locale}:{value:string;onChange:(s:string)=>void;locale:string}){const shift=(n:number)=>{const d=new Date(`${value}-15T12:00:00`);d.setMonth(d.getMonth()+n);onChange(`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`)};return <div className="month-picker"><button className="icon-button" aria-label="Previous month" onClick={()=>shift(-1)}><Icon name="left" size={18}/></button><label><span>{new Intl.DateTimeFormat(locale,{month:'long',year:'numeric'}).format(new Date(`${value}-15T12:00:00`))}</span><Icon name="down" size={14}/><input type="month" aria-label="Month" value={value} onChange={e=>e.target.value&&onChange(e.target.value)}/></label><button className="icon-button" aria-label="Next month" onClick={()=>shift(1)}><Icon name="right" size={18}/></button></div>}
+export function MonthPicker({value,onChange,locale,labels={month:'Month',previous:'Previous month',next:'Next month'}}:{value:string;onChange:(s:string)=>void;locale:string;labels?:{month:string;previous:string;next:string}}){const shift=(n:number)=>{const d=new Date(`${value}-15T12:00:00`);d.setMonth(d.getMonth()+n);onChange(`${String(d.getFullYear()).padStart(4,'0')}-${String(d.getMonth()+1).padStart(2,'0')}`)};return <div className="month-picker"><button className="icon-button" aria-label={labels.previous} onClick={()=>shift(-1)}><Icon name="left" size={18}/></button><label><span>{new Intl.DateTimeFormat(locale,{month:'long',year:'numeric'}).format(new Date(`${value}-15T12:00:00`))}</span><Icon name="down" size={14}/><input type="month" aria-label={labels.month} min="0001-01" max="9999-12" value={value} onChange={e=>e.target.value&&onChange(e.target.value)}/></label><button className="icon-button" aria-label={labels.next} onClick={()=>shift(1)}><Icon name="right" size={18}/></button></div>}
