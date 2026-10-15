@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import type { MoneyCurrencyCode } from '@rttw/domain';
-import { cashFlow, categoryRollup, scopedAccounts, isActual, reportPeriod } from '../data/derived';
+import { cashFlow, categoryRollup, ledgerAccounts, isActual, reportPeriod } from '../data/derived';
 import { useReportAmounts } from '../data/reporting';
 import { displayAmount, displayDate, today } from '../format';
 import { Amount, CurrencySelect, ErrorMessage, Field, type FeatureProps } from '../components/shared';
@@ -8,8 +8,6 @@ import { CategoryVisualization, CategoryViewSwitch, type CategoryView } from './
 import { Icon, ui, Heading, MonthPicker } from '../components/design';
 import { Forecast } from './forecast';
 
-type Scope = 'personal' | 'household';
-type ScopedProps = FeatureProps & { scope: Scope };
 type Period = 'day' | 'week' | 'month' | 'year' | 'custom';
 const dayMilliseconds = 86400000;
 const shiftDate = (date: string, days: number) => new Date(Date.parse(date) + days * dayMilliseconds).toISOString().slice(0, 10);
@@ -31,31 +29,28 @@ function CalendarPeriodPicker({ period, anchor, onChange, t, locale }: Pick<Feat
   </div>;
 }
 
-export function Overview({ scope, onScope, ...props }: FeatureProps & {
-  scope: Scope; onScope: (scope: Scope) => void;
-}) {
-  const {snapshot,t,language}=props;
-  return <><Heading title={ui(language,'analytics')} subtitle={props.isPersonal?t.personalLedger:snapshot.household.name}/><div className="analytics-top"><h2>{t.cashFlowTitle}</h2>{!props.isPersonal&&<select aria-label={t.scope} value={scope} onChange={e=>onScope(e.target.value as Scope)}><option value="personal">{t.personal}</option><option value="household">{t.household}</option></select>}</div><PeriodReports {...props} scope={props.isPersonal?'household':scope}/></>;
+export function Overview(props: FeatureProps) {
+  return <><Heading title={ui(props.language,'analytics')} subtitle={props.t.personalLedger}/><div className="analytics-top"><h2>{props.t.cashFlowTitle}</h2></div><PeriodReports {...props}/></>;
 }
 
-function PeriodReports({ scope, ...props }: ScopedProps) {
+function PeriodReports(props: FeatureProps) {
   const { snapshot, t, locale, language, moneyDisplay } = props;
   const [anchor, setAnchor] = useState(today());
   const [period, setPeriod] = useState<Period>('month');
   const [customRange, setCustomRange] = useState(() => ({ from: reportPeriod('month', today()).from, to: today() }));
   const [showPlanned, setShowPlanned] = useState(false);
   const [reporting, setReporting] = useState(true);
-  const [reportCurrency, setReportCurrency] = useState(snapshot.household.baseCurrency);
+  const [reportCurrency, setReportCurrency] = useState(snapshot.ledger.baseCurrency);
   const [retry, setRetry] = useState(0);
   const [view, setView] = useState<CategoryView>('donutView');
   const validRange = period !== 'custom' || validDate(customRange.from) && validDate(customRange.to) && customRange.from <= customRange.to;
   const range = period === 'custom' && validRange ? customRange : reportPeriod(period === 'custom' ? 'month' : period, anchor);
   const actualDate = today();
-  const accountIds = new Set(scopedAccounts(snapshot, scope, true).map((item) => item.id));
+  const accountIds = new Set(ledgerAccounts(snapshot, true).map((item) => item.id));
   const reportTransactions = snapshot.transactions.filter((item) => validRange && accountIds.has(item.accountId) && isActual(item, actualDate) && item.transactionDate >= range.from && item.transactionDate <= range.to && item.transactionType !== 'transfer');
   const conversions = useReportAmounts(reportTransactions, reportCurrency, reporting, retry);
-  const flow = cashFlow(snapshot, scope, range, actualDate, reporting, reporting ? conversions.amounts : undefined, reportCurrency);
-  const rollup = categoryRollup(snapshot, scope, range, actualDate, reporting ? conversions.amounts : undefined);
+  const flow = cashFlow(snapshot, range, actualDate, reporting, reporting ? conversions.amounts : undefined, reportCurrency);
+  const rollup = categoryRollup(snapshot, range, actualDate, reporting ? conversions.amounts : undefined);
   const periodLabel = period === 'month'
     ? new Intl.DateTimeFormat(locale, { month: 'long', year: 'numeric' }).format(new Date(`${range.from}T12:00:00`))
     : period === 'year' ? anchor.slice(0, 4)
@@ -89,7 +84,7 @@ function PeriodReports({ scope, ...props }: ScopedProps) {
     <section className="card spending-card"><div className="section-heading"><h2>{ui(language,'expense')}</h2><CategoryViewSwitch value={view} onChange={setView} t={t}/></div><CategoryVisualization rows={rollup} categories={snapshot.categories} language={language} locale={locale} display={moneyDisplay} t={t} view={view}/>{!rollup.length&&<p className="empty">{t.empty}</p>}</section>
     {reporting&&values.some(v=>v>0n)&&<section className="card daily-chart"><div className="section-heading"><h2>{t.expense} · {reportCurrency}</h2><span className="hint">{periodLabel}</span></div><div className="daily-bars" role="img" aria-label={`${t.expense} · ${periodLabel} · ${reportCurrency}`}>{values.map((v,i)=><span key={i} style={{height:`${Math.max(2,Number(v*100n/max))}%`}} className={bins[i]!.from<=today()&&bins[i]!.to>=today()?'today':''} title={`${displayDate(bins[i]!.from,locale)}${bins[i]!.to!==bins[i]!.from?` — ${displayDate(bins[i]!.to,locale)}`:''}: ${displayAmount(v,reportCurrency,locale)}`}/>)}</div><div className="chart-axis"><span>{displayDate(range.from,locale)}</span><span>{displayDate(range.to,locale)}</span></div></section>}
     <label className="forecast-switch"><span className="tile-icon lavender"><Icon name="calendar" size={20}/></span><span>{t.showPlanned}</span><input type="checkbox" checked={showPlanned} onChange={e=>setShowPlanned(e.target.checked)}/></label>
-    {showPlanned&&<Forecast {...props} scope={scope} period={range} reportCurrency={reportCurrency} reporting={reporting}/>}
+    {showPlanned&&<Forecast {...props} period={range} reportCurrency={reportCurrency} reporting={reporting}/>}
     </>}
   </section>;
 }

@@ -10,7 +10,6 @@ import { AuthService } from './auth/service.js';
 import { createLocalDatabasePool } from './database/local.js';
 import { migrationOptions } from './database/migrations.js';
 import { checkDatabaseReadiness } from './database/readiness.js';
-import { HouseholdService } from './households/service.js';
 import { LedgerService } from './ledger/service.js';
 import { FxService } from './fx/service.js';
 
@@ -23,7 +22,6 @@ const fx = new FxService(database);
 const app = buildApp({
   checkDatabase: () => checkDatabaseReadiness(database),
   authService: new AuthService(new AuthRepository(database), createScryptPasswordHasher()),
-  householdService: new HouseholdService(database),
   ledgerService: new LedgerService(database, fx),
   fxService: fx,
   secureWebCookies: false,

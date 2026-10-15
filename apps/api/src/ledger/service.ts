@@ -2,7 +2,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { isDeepStrictEqual } from 'node:util';
 import type { Pool, PoolClient } from 'pg';
 import { convertMoney, money, occurrencesThrough, recurringTemplate, getRecurringPayment } from '@rttw/domain';
-import type { Account, AuditFields, Category, Household, HouseholdMember, LedgerSnapshot, RecurringRule, Transaction, TransactionSplit, TransferLink } from '@rttw/domain';
+import type { Account, AuditFields, Category, PersonalLedger, LedgerSnapshot, RecurringRule, Transaction, TransactionSplit, TransferLink } from '@rttw/domain';
 import type { FxService } from '../fx/service.js';
 import { backupSchema, commandSchema, dateSchema, moneySchema, type LedgerBackup, type ParsedCommand } from './schemas.js';
 import { defaultCategories } from './defaults.js';
@@ -14,13 +14,10 @@ export class LedgerError extends Error {
 type Kind = 'account' | 'category' | 'transaction' | 'split' | 'transfer' | 'recurring';
 type Entity = Account | Category | Transaction | TransactionSplit | TransferLink | RecurringRule;
 type IdentityRow = {
-  id: string; name: string; base_currency_code: Household['baseCurrency']; created_at: Date; updated_at: Date;
+  id: string; owner_user_id: string; base_currency_code: PersonalLedger['baseCurrency']; created_at: Date; updated_at: Date;
   created_by_user_id: string; updated_by_user_id: string; revision: string | number; deleted_at: Date | null;
 };
-type MemberRow = Omit<IdentityRow, 'name' | 'base_currency_code'> & {
-  household_id: string; user_id: string; display_name: string; role: HouseholdMember['role']; membership_status: HouseholdMember['membershipStatus'];
-};
-type Context = { db: PoolClient; householdId: string; member: HouseholdMember; members: HouseholdMember[]; household: Household; state: LedgerSnapshot; now: string };
+type Context = { db: PoolClient; ledgerId: string; userId: string; ledger: PersonalLedger; state: LedgerSnapshot; now: string };
 const kinds: ReadonlyArray<[Kind, keyof Pick<LedgerSnapshot, 'accounts' | 'categories' | 'transactions' | 'splits' | 'transferLinks' | 'recurringRules'>]> = [
   ['account', 'accounts'], ['category', 'categories'], ['transaction', 'transactions'], ['split', 'splits'], ['transfer', 'transferLinks'], ['recurring', 'recurringRules'],
 ];
@@ -29,36 +26,37 @@ const iso = (value: Date | string) => new Date(value).toISOString();
 const same = isDeepStrictEqual;
 const compatiblePostingStatus = (a: Transaction['status'], b: Transaction['status']) => a === b || ['confirmed', 'fx_pending'].includes(a) && ['confirmed', 'fx_pending'].includes(b);
 
-/** Every operation locks and authorizes its household before reading financial rows. */
+/** Every operation locks the authenticated user's personal ledger before reading financial rows. */
 export class LedgerService {
   private readonly fxAttemptTimes = new Map<string, number>();
   constructor(private readonly pool: Pool, private readonly fx?: FxService) {}
 
-  async getSnapshot(userId: string, householdId: string, throughDate = new Date().toISOString().slice(0, 10)): Promise<LedgerSnapshot> {
+  async getSnapshot(userId: string, throughDate = new Date().toISOString().slice(0, 10)): Promise<LedgerSnapshot> {
     if (!dateSchema.safeParse(throughDate).success) fail('invalid_date');
     // A browser may already be on tomorrow's civil date relative to UTC.
     if (throughDate > new Date(Date.now() + 86400000).toISOString().slice(0, 10)) fail('future_materialization_date');
-    const { state, candidate } = await this.withHousehold(userId, householdId, async (ctx) => {
+    const { state, candidate } = await this.withLedger(userId, async (ctx) => {
       await this.catchUp(ctx, throughDate);
       let candidate = this.nextPendingFx(ctx.state);
-      if (candidate?.originalAmount.currency === ctx.household.baseCurrency) {
-        this.recordFxAttempt(householdId, candidate.id);
+      if (candidate?.originalAmount.currency === ctx.ledger.baseCurrency) {
+        this.recordFxAttempt(ctx.ledgerId, candidate.id);
         await this.persist(ctx, 'transaction', this.audit(ctx, { ...candidate, reportingAmount: candidate.originalAmount, status: 'confirmed' }, candidate));
         candidate = undefined;
       }
       return { state: ctx.state, candidate };
     });
     if (!candidate || !this.fx) return state;
-    this.recordFxAttempt(householdId, candidate.id);
-    // No financial client or household lock is held while an upstream provider
+    this.recordFxAttempt(state.ledger.id, candidate.id);
+    // No financial client or ledger lock is held while an upstream provider
     // responds. The second transaction authorizes and compares current state again.
-    const resolved = await this.resolvePendingFx(candidate, state.household.baseCurrency);
+    const resolved = await this.resolvePendingFx(candidate, state.ledger.baseCurrency);
     if (!resolved) return state;
-    return this.withHousehold(userId, householdId, async (ctx) => {
+    return this.withLedger(userId, async (ctx) => {
+      const ledgerId = ctx.ledgerId;
       const current = ctx.state.transactions.find((transaction) => transaction.id === candidate.id);
       if (!current || current.deletedAt !== null || current.status !== 'fx_pending' || current.reportingAmount !== null || current.fxSnapshot !== null ||
         current.revision !== candidate.revision || !same(current.originalAmount, candidate.originalAmount) || current.transactionDate !== candidate.transactionDate ||
-        current.postingDate !== candidate.postingDate || ctx.household.baseCurrency !== state.household.baseCurrency) return ctx.state;
+        current.postingDate !== candidate.postingDate || ctx.ledger.baseCurrency !== state.ledger.baseCurrency) return ctx.state;
       const next: Transaction = { ...current, ...resolved, status: 'confirmed' };
       this.transaction(ctx, next, ctx.state.splits.filter((split) => split.transactionId === current.id && split.deletedAt === null), current);
       await this.persist(ctx, 'transaction', this.audit(ctx, next, current));
@@ -66,16 +64,17 @@ export class LedgerService {
     });
   }
 
-  async execute(userId: string, householdId: string, command: unknown, requestId?: string): Promise<LedgerSnapshot> {
+  async execute(userId: string, command: unknown, requestId?: string): Promise<LedgerSnapshot> {
     const parsed = commandSchema.safeParse(command);
     if (!parsed.success) fail('invalid_ledger_command');
     if (requestId !== undefined && !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(requestId)) fail('invalid_request_id');
     const hash = createHash('sha256').update(JSON.stringify(parsed.data)).digest('hex');
-    return this.withHousehold(userId, householdId, async (ctx) => {
+    return this.withLedger(userId, async (ctx) => {
+      const ledgerId = ctx.ledgerId;
       if (requestId) {
         const receipt = await ctx.db.query<{ payload_sha256: string }>(
-          'SELECT payload_sha256 FROM web_operation_receipts WHERE household_id=$1 AND member_id=$2 AND request_id=$3',
-          [householdId, ctx.member.id, requestId],
+          'SELECT payload_sha256 FROM ledger_operation_receipts WHERE ledger_id=$1 AND request_id=$2',
+          [ledgerId, requestId],
         );
         if (receipt.rows[0]) {
           if (receipt.rows[0].payload_sha256 !== hash) fail('request_id_conflict', 409);
@@ -84,54 +83,51 @@ export class LedgerService {
       }
       await this.apply(ctx, parsed.data);
       if (requestId) await ctx.db.query(
-        'INSERT INTO web_operation_receipts(household_id,member_id,request_id,payload_sha256) VALUES($1,$2,$3,$4)',
-        [householdId, ctx.member.id, requestId, hash],
+        'INSERT INTO ledger_operation_receipts(ledger_id,request_id,payload_sha256) VALUES($1,$2,$3)',
+        [ledgerId, requestId, hash],
       );
       return ctx.state;
     });
   }
 
-  async exportBackup(userId: string, householdId: string): Promise<LedgerBackup> {
-    return this.withHousehold(userId, householdId, async (ctx) => {
+  async exportBackup(userId: string): Promise<LedgerBackup> {
+    return this.withLedger(userId, async (ctx) => {
+      const ledgerId = ctx.ledgerId;
       const dates = await ctx.db.query<{ rule_id: string; occurrence_date: string; transaction_id: string }>(
-        'SELECT rule_id, occurrence_date::text, transaction_id FROM web_recurring_occurrences WHERE household_id = $1 ORDER BY rule_id, occurrence_date', [householdId],
+        'SELECT rule_id, occurrence_date::text, transaction_id FROM ledger_recurring_occurrences WHERE ledger_id = $1 ORDER BY rule_id, occurrence_date', [ledgerId],
       );
-      const { household, accounts, categories, transactions, splits, transferLinks, recurringRules } = ctx.state;
-      // Identity/audit references are mapped on restore; member/user records are never exported.
-      return { format: 'rttw-web-ledger', version: 1, exportedAt: ctx.now, household, accounts, categories, transactions, splits, transferLinks, recurringRules,
+      const { ledger, accounts, categories, transactions, splits, transferLinks, recurringRules } = ctx.state;
+      // Identity/audit references are mapped on restore; user records are never exported.
+      return { format: 'rttw-web-ledger', version: 2, exportedAt: ctx.now, ledger, accounts, categories, transactions, splits, transferLinks, recurringRules,
         recurringOccurrences: dates.rows.map((row) => ({ ruleId: row.rule_id, occurrenceDate: row.occurrence_date, transactionId: row.transaction_id })) };
     });
   }
 
-  async previewBackup(userId: string, householdId: string, value: unknown) {
-    return this.restoreBackup(userId, householdId, value, true).then((snapshot) => ({
+  async previewBackup(userId: string, value: unknown) {
+    return this.restoreBackup(userId, value, true).then((snapshot) => ({
       accounts: snapshot.accounts.length, categories: snapshot.categories.length, transactions: snapshot.transactions.length,
       splits: snapshot.splits.length, transferLinks: snapshot.transferLinks.length, recurringRules: snapshot.recurringRules.length,
-      baseCurrency: snapshot.household.baseCurrency,
+      baseCurrency: snapshot.ledger.baseCurrency,
     }));
   }
 
-  async restoreBackup(userId: string, householdId: string, value: unknown, dryRun = false): Promise<LedgerSnapshot> {
+  async restoreBackup(userId: string, value: unknown, dryRun = false): Promise<LedgerSnapshot> {
     const parsed = backupSchema.safeParse(value);
     if (!parsed.success) fail('invalid_backup');
-    return this.withHousehold(userId, householdId, async (ctx) => {
-      if (ctx.member.role !== 'owner') fail('owner_required', 403);
+    return this.withLedger(userId, async (ctx) => {
+      const ledgerId = ctx.ledgerId;
       if (kinds.some(([kind, key]) => kind === 'category' ? ctx.state.categories.some((category) => !this.pristineDefault(category)) : ctx.state[key].length)) fail('restore_requires_empty_ledger', 409);
       const backup = parsed.data;
-      ctx.household = { ...ctx.household, baseCurrency: backup.household.baseCurrency };
-      ctx.state = { ...ctx.state, household: ctx.household };
-      const sourceHousehold = backup.household.id;
-      // First verify source scope before remapping. No mixed-household file is accepted.
+      ctx.ledger = { ...ctx.ledger, baseCurrency: backup.ledger.baseCurrency };
+      ctx.state = { ...ctx.state, ledger: ctx.ledger };
+      const sourcePersonalLedger = backup.ledger.id;
+      // First verify source scope before remapping. No mixed-ledger file is accepted.
       for (const [, key] of kinds) {
         const values = backup[key];
         if (new Set(values.map((entity) => entity.id)).size !== values.length) fail('duplicate_backup_id');
-        for (const entity of values) if (entity.householdId !== sourceHousehold) fail('invalid_backup_household');
+        for (const entity of values) if (entity.ledgerId !== sourcePersonalLedger) fail('invalid_backup_ledger');
       }
-      const mapped = <T extends Entity>(entity: T): T => ({ ...entity, householdId, createdAt: ctx.now, updatedAt: ctx.now, revision: 1, createdByMemberId: ctx.member.id, updatedByMemberId: ctx.member.id,
-        ...( 'ownerMemberId' in entity ? { ownerMemberId: entity.ownershipScope === 'personal' ? ctx.member.id : null } : {}),
-        ...( 'memberId' in entity ? { memberId: entity.memberId === null ? null : ctx.member.id } : {}),
-        ...( 'payment' in entity && entity.payment ? { payment: { ...entity.payment, memberId: entity.payment.memberId === null ? null : ctx.member.id } } : {}),
-      });
+      const mapped = <T extends Entity>(entity: T): T => ({ ...entity, ledgerId, createdAt: ctx.now, updatedAt: ctx.now, revision: 1, createdByUserId: ctx.userId, updatedByUserId: ctx.userId });
       ctx.state = { ...ctx.state, accounts: backup.accounts.map(mapped), categories: backup.categories.map(mapped),
         transactions: backup.transactions.map(mapped), splits: backup.splits.map(mapped), transferLinks: backup.transferLinks.map(mapped), recurringRules: backup.recurringRules.map(mapped) };
       this.validateWholeLedger(ctx);
@@ -149,54 +145,54 @@ export class LedgerService {
         occurrenceTransactions.add(transaction.id);
       }
       if (dryRun) return ctx.state;
-      await ctx.db.query("DELETE FROM web_ledger_entities WHERE household_id = $1 AND entity_kind = 'category'", [householdId]);
-      await ctx.db.query('UPDATE households SET base_currency_code=$1, updated_by_user_id=$2, updated_at=$3, revision=revision+1 WHERE id=$4', [backup.household.baseCurrency, userId, ctx.now, householdId]);
-      ctx.household = { ...ctx.household, updatedAt: ctx.now, updatedByMemberId: ctx.member.id, revision: ctx.household.revision + 1 };
-      ctx.state = { ...ctx.state, household: ctx.household };
+      await ctx.db.query("DELETE FROM ledger_entities WHERE ledger_id = $1 AND entity_kind = 'category'", [ledgerId]);
+      await ctx.db.query('UPDATE personal_ledgers SET base_currency_code=$1, updated_by_user_id=$2, updated_at=$3, revision=revision+1 WHERE id=$4', [backup.ledger.baseCurrency, userId, ctx.now, ledgerId]);
+      ctx.ledger = { ...ctx.ledger, updatedAt: ctx.now, updatedByUserId: ctx.userId, revision: ctx.ledger.revision + 1 };
+      ctx.state = { ...ctx.state, ledger: ctx.ledger };
       for (const [kind, key] of kinds) for (const entity of ctx.state[key]) await this.persist(ctx, kind, entity);
       for (const occurrence of backup.recurringOccurrences) await ctx.db.query(
-        'INSERT INTO web_recurring_occurrences(household_id, rule_id, occurrence_date, transaction_id) VALUES ($1, $2, $3, $4)',
-        [householdId, occurrence.ruleId, occurrence.occurrenceDate, occurrence.transactionId],
+        'INSERT INTO ledger_recurring_occurrences(ledger_id, rule_id, occurrence_date, transaction_id) VALUES ($1, $2, $3, $4)',
+        [ledgerId, occurrence.ruleId, occurrence.occurrenceDate, occurrence.transactionId],
       );
       return ctx.state;
-    }, !dryRun);
+    }, !dryRun, !dryRun);
   }
 
-  private async withHousehold<T>(userId: string, householdId: string, action: (ctx: Context) => Promise<T>, seedDefaults = true): Promise<T> {
-    if (!/^[0-9a-f-]{36}$/i.test(householdId)) fail('invalid_household');
+  async settings(userId: string, baseCurrency: PersonalLedger['baseCurrency']): Promise<LedgerSnapshot> {
+    return this.withLedger(userId, async (ctx) => {
+      await ctx.db.query('UPDATE personal_ledgers SET base_currency_code=$1, updated_at=$2, updated_by_user_id=$3, revision=revision+1 WHERE id=$4', [baseCurrency, ctx.now, userId, ctx.ledgerId]);
+      ctx.state = { ...ctx.state, ledger: { ...ctx.ledger, baseCurrency, updatedAt: ctx.now, updatedByUserId: userId, revision: ctx.ledger.revision + 1 } };
+      return ctx.state;
+    });
+  }
+
+  private async withLedger<T>(userId: string, action: (ctx: Context) => Promise<T>, seedDefaults = true, commit = true): Promise<T> {
     const db = await this.pool.connect();
     try {
       await db.query('BEGIN');
-      const identity = await db.query<IdentityRow>(
-        `SELECT h.* FROM households h JOIN household_members m ON m.household_id = h.id
-         WHERE h.id = $1 AND m.user_id = $2 AND m.membership_status = 'active'
-         AND (h.personal_owner_user_id IS NULL OR h.personal_owner_user_id = $2)
-         AND m.deleted_at IS NULL AND h.deleted_at IS NULL FOR UPDATE OF h`, [householdId, userId],
-      );
+      await db.query(`INSERT INTO personal_ledgers (id, owner_user_id, base_currency_code, created_by_user_id, updated_by_user_id)
+        SELECT $1, id, 'USD', id, id FROM users WHERE id=$2 AND deleted_at IS NULL
+        ON CONFLICT (owner_user_id) DO NOTHING`, [randomUUID(), userId]);
+      const identity = await db.query<IdentityRow>(`SELECT l.* FROM personal_ledgers l JOIN users u ON u.id=l.owner_user_id
+        WHERE l.owner_user_id=$1 AND l.deleted_at IS NULL AND u.deleted_at IS NULL FOR UPDATE OF l`, [userId]);
       const row = identity.rows[0];
-      if (!row) fail('household_access_denied', 403);
-      const memberRows = await db.query<MemberRow>('SELECT * FROM household_members WHERE household_id = $1', [householdId]);
-      const memberId = (user: string) => memberRows.rows.find((member) => member.user_id === user)?.id ?? null;
-      const audit = (record: IdentityRow | MemberRow): AuditFields => ({ id: record.id, createdAt: iso(record.created_at), updatedAt: iso(record.updated_at),
-        createdByMemberId: memberId(record.created_by_user_id), updatedByMemberId: memberId(record.updated_by_user_id), revision: Number(record.revision), deletedAt: record.deleted_at ? iso(record.deleted_at) : null });
-      const members: HouseholdMember[] = memberRows.rows.map((member) => ({ ...audit(member), householdId, userId: member.user_id, displayName: member.display_name, role: member.role, membershipStatus: member.membership_status }));
-      const member = members.find((item) => item.userId === userId && item.membershipStatus === 'active' && item.deletedAt === null);
-      if (!member) fail('household_access_denied', 403);
-      const household: Household = { ...audit(row), name: row.name, baseCurrency: row.base_currency_code };
-      const state: LedgerSnapshot = { household, member, accounts: [], categories: [], transactions: [], splits: [], transferLinks: [], recurringRules: [] };
-      const entities = await db.query<{ entity_kind: Kind; entity: Entity }>('SELECT entity_kind, entity FROM web_ledger_entities WHERE household_id = $1 ORDER BY id', [householdId]);
+      if (!row) fail('ledger_access_denied', 403);
+      const ledgerId = row.id;
+      const ledger: PersonalLedger = { id: ledgerId, baseCurrency: row.base_currency_code,
+        createdAt: iso(row.created_at), updatedAt: iso(row.updated_at), createdByUserId: row.created_by_user_id,
+        updatedByUserId: row.updated_by_user_id, revision: Number(row.revision), deletedAt: null };
+      const state: LedgerSnapshot = { ledger, userId, accounts: [], categories: [], transactions: [], splits: [], transferLinks: [], recurringRules: [] };
+      const entities = await db.query<{ entity_kind: Kind; entity: Entity }>('SELECT entity_kind, entity FROM ledger_entities WHERE ledger_id=$1 ORDER BY id', [ledgerId]);
       for (const result of entities.rows) {
         const key = kinds.find(([kind]) => kind === result.entity_kind)?.[1];
         if (key) (state[key] as Entity[]).push(result.entity);
       }
-      const ctx = { db, householdId, household, member, members, state, now: new Date().toISOString() };
-      // Seeding has no implicit financial accounts or balances. Any existing
-      // category row, including an archived/deleted one, prevents re-seeding.
+      const ctx = { db, ledgerId, ledger, userId, state, now: new Date().toISOString() };
       if (seedDefaults && !state.categories.length) for (const category of defaultCategories) await this.persist(ctx, 'category', {
-        ...category, householdId, createdAt: ctx.now, updatedAt: ctx.now, createdByMemberId: member.id, updatedByMemberId: member.id, revision: 1, deletedAt: null,
+        ...category, ledgerId, createdAt: ctx.now, updatedAt: ctx.now, createdByUserId: userId, updatedByUserId: userId, revision: 1, deletedAt: null,
       });
       const result = await action(ctx);
-      await db.query('COMMIT');
+      await db.query(commit ? 'COMMIT' : 'ROLLBACK');
       return result;
     } catch (error) {
       await db.query('ROLLBACK');
@@ -205,8 +201,8 @@ export class LedgerService {
   }
 
   private audit<T extends Entity>(ctx: Context, incoming: T, previous?: T): T {
-    return { ...incoming, householdId: ctx.householdId, createdAt: previous?.createdAt ?? ctx.now,
-      createdByMemberId: previous?.createdByMemberId ?? ctx.member.id, updatedAt: ctx.now, updatedByMemberId: ctx.member.id,
+    return { ...incoming, ledgerId: ctx.ledgerId, createdAt: previous?.createdAt ?? ctx.now,
+      createdByUserId: previous?.createdByUserId ?? ctx.userId, updatedAt: ctx.now, updatedByUserId: ctx.userId,
       revision: (previous?.revision ?? 0) + 1, deletedAt: previous?.deletedAt ?? null };
   }
 
@@ -216,9 +212,9 @@ export class LedgerService {
 
   private async persist(ctx: Context, kind: Kind, entity: Entity) {
     await ctx.db.query(
-      `INSERT INTO web_ledger_entities(household_id, entity_kind, id, revision, entity) VALUES ($1, $2, $3, $4, $5::jsonb)
-       ON CONFLICT(household_id, entity_kind, id) DO UPDATE SET revision = excluded.revision, entity = excluded.entity`,
-      [ctx.householdId, kind, entity.id, entity.revision, JSON.stringify(entity)],
+      `INSERT INTO ledger_entities(ledger_id, entity_kind, id, revision, entity) VALUES ($1, $2, $3, $4, $5::jsonb)
+       ON CONFLICT(ledger_id, entity_kind, id) DO UPDATE SET revision = excluded.revision, entity = excluded.entity`,
+      [ctx.ledgerId, kind, entity.id, entity.revision, JSON.stringify(entity)],
     );
     const key = kinds.find(([item]) => item === kind)![1];
     const list = ctx.state[key] as Entity[];
@@ -226,8 +222,8 @@ export class LedgerService {
     if (index < 0) list.push(entity); else list[index] = entity;
   }
 
-  private scope(ctx: Context, entity: { householdId: string | null }) {
-    if (entity.householdId !== ctx.householdId) fail('cross_household_reference', 403);
+  private scope(ctx: Context, entity: { ledgerId: string | null }) {
+    if (entity.ledgerId !== ctx.ledgerId) fail('cross_ledger_reference', 403);
   }
 
   private pristineDefault(category: Category) {
@@ -239,7 +235,6 @@ export class LedgerService {
   private account(ctx: Context, value: Account) {
     this.scope(ctx, value);
     if (new Set(value.openingBalances.map((balance) => balance.currency)).size !== value.openingBalances.length || !value.openingBalances.some((balance) => balance.currency === value.primaryCurrency)) fail('invalid_account_currencies');
-    if (value.ownershipScope === 'shared' ? value.ownerMemberId !== null : !ctx.members.some((member) => member.id === value.ownerMemberId && member.membershipStatus === 'active' && member.deletedAt === null)) fail('invalid_account_owner');
     if (ctx.state.transactions.some((transaction) => transaction.accountId === value.id && !value.openingBalances.some((balance) => balance.currency === transaction.originalAmount.currency))) fail('currency_has_transaction_history');
     if (ctx.state.recurringRules.some((rule) => !rule.deletedAt && rule.payment?.accountId === value.id && !value.openingBalances.some((balance) => balance.currency === rule.payment!.originalAmount.currency))) fail('currency_has_recurring_payments');
   }
@@ -281,12 +276,11 @@ export class LedgerService {
     const account = ctx.state.accounts.find((item) => item.id === value.accountId && (item.deletedAt === null || historical));
     if (!account) fail('account_not_found');
     if (!account.openingBalances.some((balance) => balance.currency === value.originalAmount.currency)) fail('account_currency_not_found');
-    if (value.memberId && !ctx.members.some((item) => item.id === value.memberId)) fail('member_not_found');
     const amount = BigInt(value.originalAmount.amountMinor);
     if (value.transactionType === 'expense' && amount >= 0n || value.transactionType === 'income' && amount <= 0n) fail('invalid_transaction_sign');
     if (value.categoryId) this.categoryForTransaction(ctx, value.categoryId, value, existingCategories || previous?.categoryId === value.categoryId);
-    const reportingCurrency = value.reportingAmount?.currency ?? ctx.household.baseCurrency;
-    if (!previous && value.reportingAmount && reportingCurrency !== ctx.household.baseCurrency) fail('invalid_reporting_currency');
+    const reportingCurrency = value.reportingAmount?.currency ?? ctx.ledger.baseCurrency;
+    if (!previous && value.reportingAmount && reportingCurrency !== ctx.ledger.baseCurrency) fail('invalid_reporting_currency');
     if (value.fxSnapshot && (!value.reportingAmount || value.originalAmount.currency === reportingCurrency)) fail('invalid_fx_snapshot');
     if (value.fxSnapshot) {
       if (value.fxSnapshot.requestedDate !== (value.postingDate ?? value.transactionDate) || value.fxSnapshot.effectiveDate > value.fxSnapshot.requestedDate) fail('invalid_fx_snapshot_date');
@@ -535,16 +529,16 @@ export class LedgerService {
         if (!moneySchema.safeParse({ currency, amountMinor: absolute.toString() }).success) fail('invalid_amount');
         const makeTransaction = (accountId: string, amountMinor: bigint): Transaction => {
           const originalAmount = { currency, amountMinor: amountMinor.toString() };
-          return { id: randomUUID(), createdAt: ctx.now, updatedAt: ctx.now, createdByMemberId: ctx.member.id, updatedByMemberId: ctx.member.id, revision: 1, deletedAt: null,
-            householdId: ctx.householdId, accountId, memberId: ctx.member.id, categoryId: null, transactionType: 'transfer', transactionDate: command.asOf,
-            postingDate: null, source: 'manual', status: currency === ctx.household.baseCurrency ? 'confirmed' : 'fx_pending', originalAmount,
-            reportingAmount: currency === ctx.household.baseCurrency ? originalAmount : null, fxSnapshot: null, description: null, notes: null };
+          return { id: randomUUID(), createdAt: ctx.now, updatedAt: ctx.now, createdByUserId: ctx.userId, updatedByUserId: ctx.userId, revision: 1, deletedAt: null,
+            ledgerId: ctx.ledgerId, accountId, categoryId: null, transactionType: 'transfer', transactionDate: command.asOf,
+            postingDate: null, source: 'manual', status: currency === ctx.ledger.baseCurrency ? 'confirmed' : 'fx_pending', originalAmount,
+            reportingAmount: currency === ctx.ledger.baseCurrency ? originalAmount : null, fxSnapshot: null, description: null, notes: null };
         };
         // A negative balance moves the liability: debit the destination, credit the closing account.
         const debit = makeTransaction(amount > 0n ? source.id : target.id, -absolute);
         const credit = makeTransaction(amount > 0n ? target.id : source.id, absolute);
-        const link: TransferLink = { id: randomUUID(), createdAt: ctx.now, updatedAt: ctx.now, createdByMemberId: ctx.member.id, updatedByMemberId: ctx.member.id,
-          revision: 1, deletedAt: null, householdId: ctx.householdId, debitTransactionId: debit.id, creditTransactionId: credit.id, feeTransactionId: null,
+        const link: TransferLink = { id: randomUUID(), createdAt: ctx.now, updatedAt: ctx.now, createdByUserId: ctx.userId, updatedByUserId: ctx.userId,
+          revision: 1, deletedAt: null, ledgerId: ctx.ledgerId, debitTransactionId: debit.id, creditTransactionId: credit.id, feeTransactionId: null,
           sentAmount: { currency, amountMinor: absolute.toString() }, receivedAmount: { currency, amountMinor: absolute.toString() } };
         this.transfer(ctx, debit, credit, link);
         await this.persist(ctx, 'transaction', debit);
@@ -566,7 +560,7 @@ export class LedgerService {
   }
 
   private async catchUp(ctx: Context, throughDate: string, ruleId?: string) {
-    const existing = await ctx.db.query<{ rule_id: string; occurrence_date: string }>('SELECT rule_id, occurrence_date::text FROM web_recurring_occurrences WHERE household_id = $1', [ctx.householdId]);
+    const existing = await ctx.db.query<{ rule_id: string; occurrence_date: string }>('SELECT rule_id, occurrence_date::text FROM ledger_recurring_occurrences WHERE ledger_id = $1', [ctx.ledgerId]);
     const dates = new Set(existing.rows.map((row) => `${row.rule_id}/${row.occurrence_date}`));
     for (const rule of [...ctx.state.recurringRules]) {
       if (!rule.isActive || rule.deletedAt || ruleId && rule.id !== ruleId) continue;
@@ -577,18 +571,18 @@ export class LedgerService {
       if (scheduled.length > 10000) fail('recurring_catchup_limit');
       const legacy = rule.payment && rule.templateTransactionId ? ctx.state.transactions.find((item) => item.id === rule.templateTransactionId) : undefined;
       if (legacy && !legacy.deletedAt && ['confirmed', 'fx_pending'].includes(legacy.status) && scheduled.includes(legacy.transactionDate) && !dates.has(`${rule.id}/${legacy.transactionDate}`)) {
-        await ctx.db.query('INSERT INTO web_recurring_occurrences(household_id, rule_id, occurrence_date, transaction_id) VALUES ($1, $2, $3, $4)', [ctx.householdId, rule.id, legacy.transactionDate, legacy.id]);
+        await ctx.db.query('INSERT INTO ledger_recurring_occurrences(ledger_id, rule_id, occurrence_date, transaction_id) VALUES ($1, $2, $3, $4)', [ctx.ledgerId, rule.id, legacy.transactionDate, legacy.id]);
         dates.add(`${rule.id}/${legacy.transactionDate}`);
       }
       const templateSplits: TransactionSplit[] = rule.payment
-        ? rule.payment.splits.map((split) => this.audit(ctx, { id: randomUUID(), householdId: ctx.householdId, createdAt: ctx.now, updatedAt: ctx.now,
-          createdByMemberId: ctx.member.id, updatedByMemberId: ctx.member.id, revision: 1, deletedAt: null, transactionId: template.id, categoryId: split.categoryId, amount: split.amount }))
+        ? rule.payment.splits.map((split) => this.audit(ctx, { id: randomUUID(), ledgerId: ctx.ledgerId, createdAt: ctx.now, updatedAt: ctx.now,
+          createdByUserId: ctx.userId, updatedByUserId: ctx.userId, revision: 1, deletedAt: null, transactionId: template.id, categoryId: split.categoryId, amount: split.amount }))
         : ctx.state.splits.filter((split) => split.transactionId === template.id && split.deletedAt === null);
       for (const occurrenceDate of scheduled) {
         const key = `${rule.id}/${occurrenceDate}`;
         if (dates.has(key)) continue;
         const usesTemplate = !rule.payment && occurrenceDate === template.transactionDate;
-        const reusableReporting = template.originalAmount.currency === ctx.household.baseCurrency ? template.originalAmount : null;
+        const reusableReporting = template.originalAmount.currency === ctx.ledger.baseCurrency ? template.originalAmount : null;
         const transaction = usesTemplate
           ? (template.status === 'planned' ? this.audit(ctx, { ...template, status: template.reportingAmount ? 'confirmed' as const : 'fx_pending' as const }, template) : template)
           : this.audit(ctx, { ...template, id: randomUUID(), transactionDate: occurrenceDate, postingDate: null, source: 'recurring' as const,
@@ -597,27 +591,27 @@ export class LedgerService {
         this.transaction(ctx, transaction, splits, usesTemplate ? template : undefined, true);
         await this.persist(ctx, 'transaction', transaction);
         if (!usesTemplate) for (const split of splits) await this.persist(ctx, 'split', split);
-        await ctx.db.query('INSERT INTO web_recurring_occurrences(household_id, rule_id, occurrence_date, transaction_id) VALUES ($1, $2, $3, $4)', [ctx.householdId, rule.id, occurrenceDate, transaction.id]);
+        await ctx.db.query('INSERT INTO ledger_recurring_occurrences(ledger_id, rule_id, occurrence_date, transaction_id) VALUES ($1, $2, $3, $4)', [ctx.ledgerId, rule.id, occurrenceDate, transaction.id]);
         dates.add(key);
       }
     }
   }
 
   private nextPendingFx(state: LedgerSnapshot) {
-    const attemptKey = (transaction: Transaction) => `${state.household.id}/${transaction.id}`;
+    const attemptKey = (transaction: Transaction) => `${state.ledger.id}/${transaction.id}`;
     return state.transactions.filter((transaction) => transaction.deletedAt === null && transaction.status === 'fx_pending' && transaction.reportingAmount === null && transaction.fxSnapshot === null && state.accounts.some((account) => account.id === transaction.accountId && !account.deletedAt))
       .sort((a, b) => (this.fxAttemptTimes.get(attemptKey(a)) ?? 0) - (this.fxAttemptTimes.get(attemptKey(b)) ?? 0))
       .at(0);
   }
 
-  private recordFxAttempt(householdId: string, transactionId: string) {
+  private recordFxAttempt(ledgerId: string, transactionId: string) {
     // Disposable scheduling metadata prevents one unavailable currency/date from
     // starving other rows. Financial state stays entirely in PostgreSQL.
-    this.fxAttemptTimes.set(`${householdId}/${transactionId}`, Date.now());
+    this.fxAttemptTimes.set(`${ledgerId}/${transactionId}`, Date.now());
     if (this.fxAttemptTimes.size > 10000) this.fxAttemptTimes.delete(this.fxAttemptTimes.keys().next().value!);
   }
 
-  private async resolvePendingFx(transaction: Transaction, baseCurrency: Household['baseCurrency']): Promise<Pick<Transaction, 'reportingAmount' | 'fxSnapshot'> | undefined> {
+  private async resolvePendingFx(transaction: Transaction, baseCurrency: PersonalLedger['baseCurrency']): Promise<Pick<Transaction, 'reportingAmount' | 'fxSnapshot'> | undefined> {
     if (!this.fx) return undefined;
     try {
       const requestedDate = transaction.postingDate ?? transaction.transactionDate;

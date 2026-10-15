@@ -12,13 +12,13 @@ type EntryType = 'expense' | 'income' | 'transfer';
 type DraftSplit = { key: string; categoryId: string; amount: string; existing?: TransactionSplit };
 export function TransactionEditor({ existing, onClose, ...props }: FeatureProps & { existing: Transaction | undefined; onClose: () => void }) {
   const { snapshot, t, language, command } = props;
-  const [fields] = useState(() => audit(snapshot.member.id, existing));
+  const [fields] = useState(() => audit(snapshot.userId, existing));
   const [transferIds] = useState(() => ({ debit: crypto.randomUUID(), credit: crypto.randomUUID(), link: crypto.randomUUID(), fee: crypto.randomUUID() }));
   const accounts = snapshot.accounts.filter((item) => !item.deletedAt);
   const initialAccount = accounts.find((item) => item.id === existing?.accountId) ?? accounts[0];
   const [type, setType] = useState<EntryType>(existing?.transactionType === 'income' ? 'income' : 'expense');
   const [accountId, setAccountId] = useState(initialAccount?.id ?? '');
-  const [currency, setCurrency] = useState(existing?.originalAmount.currency ?? initialAccount?.primaryCurrency ?? snapshot.household.baseCurrency);
+  const [currency, setCurrency] = useState(existing?.originalAmount.currency ?? initialAccount?.primaryCurrency ?? snapshot.ledger.baseCurrency);
   const [destination, setDestination] = useState('');
   const [categoryId, setCategoryId] = useState(existing?.categoryId ?? '');
   const [split, setSplit] = useState(snapshot.splits.some((item) => item.transactionId === existing?.id && !item.deletedAt));
@@ -41,9 +41,9 @@ export function TransactionEditor({ existing, onClose, ...props }: FeatureProps 
     if (!account || !codes.includes(currency) || !date) { setError(t.invalidForm); return; }
     let entered;
     try { entered = parseMajorAmount(text(data, 'amount'), currency); if (entered.amountMinor <= 0n) throw new Error(); } catch { setError(t.invalidAmount); return; }
-    const householdId = snapshot.household.id; const memberId = snapshot.member.id;
+    const ledgerId = snapshot.ledger.id; const userId = snapshot.userId;
     const description = text(data, 'description') || null; const notes = String(data.get('notes') ?? '') || null;
-    const common = { householdId, memberId, categoryId: null, transactionDate: date, postingDate: null, source: 'manual' as const,
+    const common = { ledgerId, categoryId: null, transactionDate: date, postingDate: null, source: 'manual' as const,
       status: date > today() ? 'planned' as const : 'confirmed' as const, reportingAmount: null, fxSnapshot: null, description, notes };
     setWorking(true);
     try {
@@ -52,18 +52,18 @@ export function TransactionEditor({ existing, onClose, ...props }: FeatureProps 
         if (!target) { setError(t.invalidForm); return; }
         const debitAmount = serializeMoney({ ...entered, amountMinor: -entered.amountMinor });
         const creditAmount = serializeMoney(entered);
-        const transferStatus = date > today() ? 'planned' : currency === snapshot.household.baseCurrency ? 'confirmed' : 'fx_pending';
-        const debit: Transaction = { ...fields, id: transferIds.debit, ...common, transactionType: 'transfer', accountId, originalAmount: debitAmount, status: transferStatus, reportingAmount: currency === snapshot.household.baseCurrency ? debitAmount : null };
-        const credit: Transaction = { ...fields, id: transferIds.credit, ...common, transactionType: 'transfer', accountId: target.id, originalAmount: creditAmount, status: transferStatus, reportingAmount: currency === snapshot.household.baseCurrency ? creditAmount : null };
+        const transferStatus = date > today() ? 'planned' : currency === snapshot.ledger.baseCurrency ? 'confirmed' : 'fx_pending';
+        const debit: Transaction = { ...fields, id: transferIds.debit, ...common, transactionType: 'transfer', accountId, originalAmount: debitAmount, status: transferStatus, reportingAmount: currency === snapshot.ledger.baseCurrency ? debitAmount : null };
+        const credit: Transaction = { ...fields, id: transferIds.credit, ...common, transactionType: 'transfer', accountId: target.id, originalAmount: creditAmount, status: transferStatus, reportingAmount: currency === snapshot.ledger.baseCurrency ? creditAmount : null };
         let fee: Transaction | undefined;
         if (text(data, 'fee')) {
           const value = parseMajorAmount(text(data, 'fee'), currency); if (value.amountMinor <= 0n) { setError(t.invalidAmount); return; }
           const feeAmount = serializeMoney({ ...value, amountMinor: -value.amountMinor });
           fee = { ...fields, id: transferIds.fee, ...common, accountId, transactionType: 'expense', description: t.transferFee, originalAmount: feeAmount,
-            reportingAmount: currency === snapshot.household.baseCurrency ? feeAmount : null,
-            status: date > today() ? 'planned' : currency === snapshot.household.baseCurrency ? 'confirmed' : 'fx_pending' };
+            reportingAmount: currency === snapshot.ledger.baseCurrency ? feeAmount : null,
+            status: date > today() ? 'planned' : currency === snapshot.ledger.baseCurrency ? 'confirmed' : 'fx_pending' };
         }
-        await command({ type: 'transfer.create', debit, credit, link: { ...fields, id: transferIds.link, householdId, debitTransactionId: debit.id, creditTransactionId: credit.id,
+        await command({ type: 'transfer.create', debit, credit, link: { ...fields, id: transferIds.link, ledgerId, debitTransactionId: debit.id, creditTransactionId: credit.id,
           feeTransactionId: fee?.id ?? null, sentAmount: serializeMoney(entered), receivedAmount: serializeMoney(entered) }, ...(fee ? { fee } : {}) }); onClose(); return;
       }
       const original = serializeMoney({ ...entered, amountMinor: type === 'expense' ? -entered.amountMinor : entered.amountMinor });
@@ -75,27 +75,27 @@ export function TransactionEditor({ existing, onClose, ...props }: FeatureProps 
           const value = parseMajorAmount(item.amount, currency);
           if (value.amountMinor <= 0n || !applicable.some((candidate) => candidate.id === item.categoryId)) { setError(t.splitError); return; }
           total += value.amountMinor;
-          savedSplits.push({ ...audit(memberId, item.existing), id: item.key, householdId, transactionId: fields.id, categoryId: item.categoryId,
+          savedSplits.push({ ...audit(userId, item.existing), id: item.key, ledgerId, transactionId: fields.id, categoryId: item.categoryId,
             amount: serializeMoney({ ...value, amountMinor: type === 'expense' ? -value.amountMinor : value.amountMinor }) });
         }
         if (total !== entered.amountMinor) { setError(t.splitError); return; }
       }
-      let reportingAmount = currency === snapshot.household.baseCurrency ? original : null;
+      let reportingAmount = currency === snapshot.ledger.baseCurrency ? original : null;
       let fxSnapshot: Transaction['fxSnapshot'] = null;
       const manual = text(data, 'manualRate').replace(',', '.');
       if (!manual && existing?.reportingAmount && existing.originalAmount.currency === currency && existing.transactionDate === date) {
         fxSnapshot = existing.fxSnapshot;
         reportingAmount = existing.fxSnapshot ? serializeMoney(convertMoney(deserializeMoney(original), existing.reportingAmount.currency, existing.fxSnapshot.rateDecimal)) : existing.reportingAmount.currency === currency ? original : existing.reportingAmount;
-      } else if (currency !== snapshot.household.baseCurrency) {
+      } else if (currency !== snapshot.ledger.baseCurrency) {
         if (manual) {
-          try { reportingAmount = serializeMoney(convertMoney(deserializeMoney(original), snapshot.household.baseCurrency, manual)); } catch { setError(t.invalidAmount); return; }
+          try { reportingAmount = serializeMoney(convertMoney(deserializeMoney(original), snapshot.ledger.baseCurrency, manual)); } catch { setError(t.invalidAmount); return; }
           fxSnapshot = { rateDecimal: manual, provider: 'manual', requestedDate: fxDate, effectiveDate: fxDate };
         } else {
           try {
-            const result = await rates(currency, snapshot.household.baseCurrency, fxDate);
-            const rate = result.rates.find((item) => item.base === currency && item.quote === snapshot.household.baseCurrency);
+            const result = await rates(currency, snapshot.ledger.baseCurrency, fxDate);
+            const rate = result.rates.find((item) => item.base === currency && item.quote === snapshot.ledger.baseCurrency);
             if (rate) {
-              reportingAmount = serializeMoney(convertMoney(deserializeMoney(original), snapshot.household.baseCurrency, rate.rateDecimal));
+              reportingAmount = serializeMoney(convertMoney(deserializeMoney(original), snapshot.ledger.baseCurrency, rate.rateDecimal));
               fxSnapshot = { rateDecimal: rate.rateDecimal, provider: rate.provider, requestedDate: rate.requestedDate, effectiveDate: rate.effectiveDate };
             }
           } catch { /* A provider outage leaves an explicit FX-pending record; the ledger still requires a successful server write. */ }
@@ -121,7 +121,7 @@ export function TransactionEditor({ existing, onClose, ...props }: FeatureProps 
     {type==='transfer'?<><Field label={`${t.fee} · ${currency}`}><input name="fee" inputMode="decimal"/></Field><p className="hint">{t.transferHint}</p></>:<>
       <label className="check"><input type="checkbox" checked={split} onChange={e=>{setSplit(e.target.checked);if(e.target.checked&&!splits.length)setSplits([{key:crypto.randomUUID(),categoryId:'',amount:''},{key:crypto.randomUUID(),categoryId:'',amount:''}])}}/>{t.split}</label>
       {split&&<fieldset><legend>{t.categories}</legend>{splits.map((item,index)=><div className="split-row" key={item.key}><Field label={`${t.category} ${index+1}`}><select value={item.categoryId} onChange={e=>setSplits(current=>current.map(v=>v.key===item.key?{...v,categoryId:e.target.value}:v))} required><option value="">—</option>{applicable.map(v=><option key={v.id} value={v.id}>{categoryLabel(v,snapshot.categories,language)}</option>)}</select></Field><Field label={`${t.amount} · ${currency}`}><input inputMode="decimal" required value={item.amount} onChange={e=>setSplits(current=>current.map(v=>v.key===item.key?{...v,amount:e.target.value}:v))}/></Field><button type="button" onClick={()=>setSplits(current=>current.filter(v=>v.key!==item.key))} aria-label={`${t.remove} ${index+1}`}><Icon name="close" size={16}/></button></div>)}<button type="button" onClick={()=>setSplits(current=>[...current,{key:crypto.randomUUID(),categoryId:'',amount:''}])}>{t.addSplit}</button></fieldset>}
-      {currency!==snapshot.household.baseCurrency&&<><Field label={`${t.manualRate} · ${snapshot.household.baseCurrency}`}><input name="manualRate" inputMode="decimal" placeholder={existing?.fxSnapshot?.rateDecimal??''}/></Field><p className="hint">{t.fxHint}</p>{existing?.fxSnapshot&&<p className="hint">{t.rate}: {existing.fxSnapshot.rateDecimal} · {existing.fxSnapshot.provider} · {existing.fxSnapshot.effectiveDate}</p>}</>}
+      {currency!==snapshot.ledger.baseCurrency&&<><Field label={`${t.manualRate} · ${snapshot.ledger.baseCurrency}`}><input name="manualRate" inputMode="decimal" placeholder={existing?.fxSnapshot?.rateDecimal??''}/></Field><p className="hint">{t.fxHint}</p>{existing?.fxSnapshot&&<p className="hint">{t.rate}: {existing.fxSnapshot.rateDecimal} · {existing.fxSnapshot.provider} · {existing.fxSnapshot.effectiveDate}</p>}</>}
     </>}
     {existing?.notes&&<Field label={t.notes}><textarea name="notes" rows={2} maxLength={10000} defaultValue={existing.notes}/></Field>}</details>
     </div>

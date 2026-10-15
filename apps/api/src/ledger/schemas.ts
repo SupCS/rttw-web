@@ -18,24 +18,24 @@ export const moneySchema = z.object({
 }).strict();
 const audit = {
   id: idSchema, createdAt: timestamp, updatedAt: timestamp,
-  createdByMemberId: idSchema.nullable(), updatedByMemberId: idSchema.nullable(),
+  createdByUserId: idSchema.nullable(), updatedByUserId: idSchema.nullable(),
   revision: z.number().int().positive(), deletedAt: timestamp.nullable(),
 };
 export const accountSchema = z.object({
-  ...audit, householdId: z.uuid(), ownershipScope: z.enum(['personal', 'shared']),
-  ownerMemberId: idSchema.nullable(), name: z.string().trim().min(1).max(120),
+  ...audit, ledgerId: z.uuid(),
+  name: z.string().trim().min(1).max(120),
   accountType: z.enum(['cash', 'debit_card', 'credit_card', 'current', 'savings', 'deposit', 'investment', 'debt', 'e_wallet', 'custom']),
   primaryCurrency: currency, openingBalances: z.array(moneySchema).min(1).max(32), isArchived: z.boolean(),
 }).strict();
 export const categorySchema = z.object({
-  ...audit, householdId: z.uuid().nullable(), parentId: idSchema.nullable(),
+  ...audit, ledgerId: z.uuid().nullable(), parentId: idSchema.nullable(),
   applicability: z.enum(['expense', 'income', 'both']), systemKey: z.string().max(120).nullable(),
   names: z.object({ en: z.string().trim().min(1).max(120), uk: z.string().trim().min(1).max(120), ru: z.string().trim().min(1).max(120) }).strict(),
   icon: z.string().max(80).nullable(), colorToken: z.string().max(80).nullable(), iconColor: z.string().max(80).nullable(),
   isArchived: z.boolean(),
 }).strict();
 export const transactionSchema = z.object({
-  ...audit, householdId: z.uuid(), accountId: idSchema, memberId: idSchema.nullable(), categoryId: idSchema.nullable(),
+  ...audit, ledgerId: z.uuid(), accountId: idSchema, categoryId: idSchema.nullable(),
   transactionType: z.enum(['expense', 'income', 'transfer', 'refund', 'adjustment', 'debt_payment']),
   transactionDate: dateSchema, postingDate: dateSchema.nullable(),
   source: z.enum(['manual', 'import', 'recurring', 'bank_api']), status: z.enum(['planned', 'confirmed', 'fx_pending', 'review']),
@@ -44,16 +44,16 @@ export const transactionSchema = z.object({
   description: z.string().max(1000).nullable(), notes: z.string().max(10000).nullable(),
 }).strict();
 export const splitSchema = z.object({
-  ...audit, householdId: z.uuid(), transactionId: idSchema, categoryId: idSchema, amount: moneySchema,
+  ...audit, ledgerId: z.uuid(), transactionId: idSchema, categoryId: idSchema, amount: moneySchema,
 }).strict();
 export const transferSchema = z.object({
-  ...audit, householdId: z.uuid(), debitTransactionId: idSchema, creditTransactionId: idSchema, feeTransactionId: idSchema.nullable(),
+  ...audit, ledgerId: z.uuid(), debitTransactionId: idSchema, creditTransactionId: idSchema, feeTransactionId: idSchema.nullable(),
   sentAmount: moneySchema, receivedAmount: moneySchema,
 }).strict();
 export const recurringSchema = z.object({
-  ...audit, householdId: z.uuid(), templateTransactionId: idSchema.nullable(),
+  ...audit, ledgerId: z.uuid(), templateTransactionId: idSchema.nullable(),
   payment: z.object({
-    accountId: idSchema, memberId: idSchema.nullable(), categoryId: idSchema.nullable(), transactionType: z.enum(['expense', 'income']),
+    accountId: idSchema, categoryId: idSchema.nullable(), transactionType: z.enum(['expense', 'income']),
     originalAmount: moneySchema, description: z.string().max(1000).nullable(), notes: z.string().max(10000).nullable(),
     splits: z.array(z.object({ categoryId: idSchema, amount: moneySchema }).strict()).max(500),
   }).strict().optional(),
@@ -74,8 +74,8 @@ export const commandSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('category.merge'), sourceCategoryId: idSchema, targetCategoryId: idSchema, expectedRevision: revision }).strict(),
 ]);
 export const backupSchema = z.object({
-  format: z.literal('rttw-web-ledger'), version: z.literal(1), exportedAt: timestamp,
-  household: z.object({ ...audit, name: z.string().min(1).max(120), baseCurrency: currency }).strict(),
+  format: z.literal('rttw-web-ledger'), version: z.literal(2), exportedAt: timestamp,
+  ledger: z.object({ ...audit, baseCurrency: currency }).strict(),
   accounts: z.array(accountSchema).max(10000), categories: z.array(categorySchema).max(10000),
   transactions: z.array(transactionSchema).max(100000), splits: z.array(splitSchema).max(500000),
   transferLinks: z.array(transferSchema).max(50000), recurringRules: z.array(recurringSchema).max(10000),
@@ -84,3 +84,5 @@ export const backupSchema = z.object({
 
 export type ParsedCommand = z.infer<typeof commandSchema>;
 export type LedgerBackup = z.infer<typeof backupSchema>;
+
+export const ledgerSettingsSchema = z.object({ baseCurrency: currency }).strict();

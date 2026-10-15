@@ -14,5 +14,5 @@ Work only in this standalone online web project; leave the legacy app and produc
 
 - `apps/web`: React/Vite API client; `apps/api`: Fastify/PostgreSQL; `packages/domain`: pure financial logic.
 - Money: bigint minor units, persisted integer strings and currency codes. Preserve original amounts, dates, currencies, and FX snapshots. Transfers are not income/expense; future records are not actuals.
-- Authorize household access. Failed requests must never appear saved. Imports/restores require validation, preview, confirmation, and atomic writes.
+- Authorize personal-ledger access by user. Failed requests must never appear saved. Imports/restores require validation, preview, confirmation, and atomic writes.
 - Keep secrets and financial content out of logs/Git. Use theme tokens, accessible layouts, en/uk/ru text, and the pirate flag for ru.

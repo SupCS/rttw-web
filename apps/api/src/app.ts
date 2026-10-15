@@ -4,8 +4,6 @@ import { registerAuthRoutes } from './auth/routes.js';
 import type { AuthService } from './auth/service.js';
 import { AuthError } from './auth/service.js';
 import { configureWebSecurity, registerWebAuthRoutes, WebRequestError } from './auth/web.js';
-import { registerHouseholdRoutes } from './households/routes.js';
-import { HouseholdError, type HouseholdService } from './households/service.js';
 import { registerLedgerRoutes } from './ledger/routes.js';
 import type { LedgerService } from './ledger/service.js';
 import { registerFxRoutes } from './fx/routes.js';
@@ -14,7 +12,6 @@ import { FxUnavailable, type FxService } from './fx/service.js';
 export type AppOptions = {
   checkDatabase?: () => Promise<void>;
   authService?: AuthService;
-  householdService?: HouseholdService;
   ledgerService?: LedgerService;
   fxService?: FxService;
   webOrigin?: string;
@@ -36,7 +33,7 @@ export function buildApp(options: AppOptions = {}) {
   });
 
   app.setErrorHandler((error, _request, reply) => {
-    if (error instanceof WebRequestError || error instanceof HouseholdError) {
+    if (error instanceof WebRequestError) {
       return reply.code(error.statusCode).send({ error: error.code });
     }
     if (error instanceof AuthError) return reply.code(401).send({ error: error.code });
@@ -76,8 +73,7 @@ export function buildApp(options: AppOptions = {}) {
         global: false,
       });
       registerAuthRoutes(authScope, options.authService!);
-      registerWebAuthRoutes(authScope, options.authService!, options.householdService);
-      if (options.householdService) registerHouseholdRoutes(authScope, options.authService!, options.householdService);
+      registerWebAuthRoutes(authScope, options.authService!);
       if (options.ledgerService) registerLedgerRoutes(authScope, options.authService!, options.ledgerService);
       if (options.fxService) registerFxRoutes(authScope, options.authService!, options.fxService);
     });

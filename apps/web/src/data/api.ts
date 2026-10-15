@@ -58,13 +58,12 @@ export async function request<T>(path: string, body?: unknown): Promise<T> {
 }
 
 export type WebUser = { id: string; email: string };
-export type WebHousehold = { id: string; name: string; baseCurrency: MoneyCurrencyCode; memberId: string; role: 'owner' | 'member' };
-export type WebSession = { user: WebUser; personalLedger: WebHousehold | null; households: WebHousehold[] };
+export type WebSession = { user: WebUser };
 export const session = () => request<WebSession>('/api/web/auth/session');
 export const authenticate = (mode: 'login' | 'register', email: string, password: string) => request<WebSession>(`/api/web/auth/${mode}`, { email, password });
 export const logout = () => request<void>('/api/web/auth/logout', {});
-export const loadLedger = (householdId: string) => request<LedgerSnapshot>(`/api/ledger?householdId=${encodeURIComponent(householdId)}&throughDate=${today()}`);
-export const sendCommand = (householdId: string, command: LedgerCommand, requestId: string = crypto.randomUUID()) => request<LedgerSnapshot>('/api/ledger/commands', { householdId, command, requestId });
+export const loadLedger = () => request<LedgerSnapshot>(`/api/ledger?throughDate=${today()}`);
+export const sendCommand = (command: LedgerCommand, requestId: string = crypto.randomUUID()) => request<LedgerSnapshot>('/api/ledger/commands', { command, requestId });
 export type FxRate = { base: MoneyCurrencyCode; quote: MoneyCurrencyCode; rateDecimal: string; requestedDate: string; effectiveDate: string; provider: string };
 export type FxResult = { rates: FxRate[]; fetchedAt: string; stale?: boolean };
 export const rates = (base: MoneyCurrencyCode, quote: MoneyCurrencyCode, date: string) => request<FxResult>(`/api/fx/rates?base=${base}&quotes=${quote}&date=${date}`);

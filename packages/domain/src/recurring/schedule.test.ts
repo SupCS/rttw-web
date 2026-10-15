@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import { buildNextUpcomingItems, buildUpcomingItems, nextOccurrence, occurrencesThrough } from './schedule.js';
 
-const audit = { id: 'rule-1', householdId: 'household-1', templateTransactionId: 'transaction-1', interval: 1,
-  startsOn: '2026-01-31', endsOn: null, isActive: true, createdAt: '', updatedAt: '', createdByMemberId: null,
-  updatedByMemberId: null, revision: 1, deletedAt: null } as const;
+const audit = { id: 'rule-1', ledgerId: 'ledger-1', templateTransactionId: 'transaction-1', interval: 1,
+  startsOn: '2026-01-31', endsOn: null, isActive: true, createdAt: '', updatedAt: '', createdByUserId: null,
+  updatedByUserId: null, revision: 1, deletedAt: null } as const;
 
 describe('recurring schedule', () => {
   it('keeps end-of-month schedules on a valid calendar date', () => {

@@ -6,29 +6,18 @@ export type AuditFields = Readonly<{
   id: string;
   createdAt: string;
   updatedAt: string;
-  createdByMemberId: string | null;
-  updatedByMemberId: string | null;
+  createdByUserId: string | null;
+  updatedByUserId: string | null;
   revision: number;
   deletedAt: string | null;
 }>;
 
-export type Household = AuditFields & Readonly<{
-  name: string;
+export type PersonalLedger = AuditFields & Readonly<{
   baseCurrency: MoneyCurrencyCode;
 }>;
 
-export type HouseholdMember = AuditFields & Readonly<{
-  householdId: string;
-  userId: string | null;
-  displayName: string;
-  role: 'owner' | 'member';
-  membershipStatus: 'invited' | 'active' | 'left' | 'removed';
-}>;
-
 export type Account = AuditFields & Readonly<{
-  householdId: string;
-  ownershipScope: 'personal' | 'shared';
-  ownerMemberId: string | null;
+  ledgerId: string;
   name: string;
   accountType: 'cash' | 'debit_card' | 'credit_card' | 'current' | 'savings' | 'deposit' | 'investment' | 'debt' | 'e_wallet' | 'custom';
   primaryCurrency: MoneyCurrencyCode;
@@ -36,17 +25,13 @@ export type Account = AuditFields & Readonly<{
   isArchived: boolean;
 }>;
 
-export type BalanceScope =
-  | Readonly<{ kind: 'household'; householdId: string }>
-  | Readonly<{ kind: 'personal'; householdId: string; memberId: string }>;
-
 export type AccountSummary = Readonly<{
   account: Account;
   currentBalances: Money[];
 }>;
 
 export type Category = AuditFields & Readonly<{
-  householdId: string | null;
+  ledgerId: string | null;
   parentId: string | null;
   applicability: 'expense' | 'income' | 'both';
   systemKey: string | null;
@@ -58,9 +43,8 @@ export type Category = AuditFields & Readonly<{
 }>;
 
 export type Transaction = AuditFields & Readonly<{
-  householdId: string;
+  ledgerId: string;
   accountId: string;
-  memberId: string | null;
   categoryId: string | null;
   transactionType: 'expense' | 'income' | 'transfer' | 'refund' | 'adjustment' | 'debt_payment';
   transactionDate: string;
@@ -80,7 +64,7 @@ export type Transaction = AuditFields & Readonly<{
 }>;
 
 export type TransactionSplit = AuditFields & Readonly<{
-  householdId: string;
+  ledgerId: string;
   transactionId: string;
   categoryId: string;
   amount: Money;
@@ -90,7 +74,6 @@ export type TransactionDetails = Readonly<{ transaction: Transaction; splits: Tr
 
 export type RecurringPayment = Readonly<{
   accountId: string;
-  memberId: string | null;
   categoryId: string | null;
   transactionType: 'expense' | 'income';
   originalAmount: WireMoney;
@@ -100,7 +83,7 @@ export type RecurringPayment = Readonly<{
 }>;
 
 export type RecurringRule = AuditFields & Readonly<{
-  householdId: string;
+  ledgerId: string;
   templateTransactionId: string | null;
   payment?: RecurringPayment | undefined;
   skipThrough?: string | null | undefined;
@@ -121,7 +104,7 @@ export type RecurringOccurrenceMaterialization = Readonly<{
 }>;
 
 export type TransferLink = AuditFields & Readonly<{
-  householdId: string;
+  ledgerId: string;
   debitTransactionId: string;
   creditTransactionId: string;
   feeTransactionId: string | null;
@@ -130,8 +113,8 @@ export type TransferLink = AuditFields & Readonly<{
 }>;
 
 export type LedgerSnapshot = Readonly<{
-  household: Household;
-  member: HouseholdMember;
+  ledger: PersonalLedger;
+  userId: string;
   accounts: Account[];
   categories: Category[];
   transactions: Transaction[];
@@ -163,9 +146,9 @@ export type FxRate = Readonly<{
 
 export type LedgerBackup = Readonly<{
   format: 'rttw-web-ledger';
-  version: 1;
+  version: 2;
   exportedAt: string;
-  household: Household;
+  ledger: PersonalLedger;
   accounts: Account[];
   categories: Category[];
   transactions: Transaction[];
@@ -175,30 +158,3 @@ export type LedgerBackup = Readonly<{
   recurringOccurrences: Array<{ ruleId: string; occurrenceDate: string; transactionId: string }>;
 }>;
 
-export interface LedgerRepository {
-  saveHousehold(household: Household): Promise<void>;
-  getActiveHousehold(): Promise<Household | null>;
-  saveMember(member: HouseholdMember): Promise<void>;
-  getActiveMember(householdId: string): Promise<HouseholdMember | null>;
-  saveAccount(account: Account): Promise<void>;
-  getAccount(accountId: string): Promise<Account | null>;
-  listAccounts(householdId: string): Promise<Account[]>;
-  listAccountSummaries(householdId: string): Promise<AccountSummary[]>;
-  getBalances(scope: BalanceScope): Promise<Money[]>;
-  saveCategory(category: Category): Promise<void>;
-  getCategory(categoryId: string): Promise<Category | null>;
-  listCategories(householdId: string): Promise<Category[]>;
-  saveTransaction(transaction: Transaction, splits: TransactionSplit[]): Promise<void>;
-  getTransaction(transactionId: string): Promise<TransactionDetails | null>;
-  listTransactions(householdId: string): Promise<Transaction[]>;
-  saveRecurringRule(rule: RecurringRule): Promise<void>;
-  getRecurringRuleForTransaction(transactionId: string): Promise<RecurringRule | null>;
-  listRecurringRules(householdId: string): Promise<RecurringRule[]>;
-  listRecurringOccurrenceDates(ruleId: string): Promise<string[]>;
-  materializeRecurringOccurrence(value: RecurringOccurrenceMaterialization): Promise<boolean>;
-  deleteRecurringRuleForTransaction(transactionId: string, deletedAt: string, updatedByMemberId: string): Promise<void>;
-  completePendingFx(transactionId: string, reportingAmount: Money, fxSnapshot: NonNullable<Transaction['fxSnapshot']>, updatedAt: string): Promise<boolean>;
-  softDeleteTransaction(transactionId: string, deletedAt: string, updatedByMemberId: string): Promise<void>;
-  restoreTransaction(transactionId: string, updatedAt: string, updatedByMemberId: string): Promise<void>;
-  saveTransfer(debit: Transaction, credit: Transaction, link: TransferLink, fee?: Transaction): Promise<void>;
-}

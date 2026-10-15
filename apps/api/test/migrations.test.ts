@@ -8,55 +8,42 @@ import type { ClientBase } from 'pg';
 import { migrationOptions } from '../src/database/migrations.js';
 import { checkDatabaseReadiness } from '../src/database/readiness.js';
 
-test('identity migrations apply once and enforce membership and identity constraints', async (t) => {
-  const db = new PGlite();
-  t.after(() => db.close());
-  // Run the actual migration runner against PostgreSQL WASM, including its history table.
-  const dbClient = {
-    query: async (input: string | { text: string; values?: unknown[] }, values?: unknown[]) => {
-      const sql = typeof input === 'string' ? input : input.text;
-      const parameters = values ?? (typeof input === 'string' ? undefined : input.values);
-      if (parameters?.length) return db.query(sql, parameters);
-      const results = await db.exec(sql);
-      return results.at(-1) ?? { rows: [] };
-    },
-  } as unknown as ClientBase;
+test('personal-only reset removes financial and membership data while retaining users and sessions', async (t) => {
+  const db = new PGlite(); t.after(() => db.close());
+  const dbClient = { query: async (input: string | { text: string; values?: unknown[] }, values?: unknown[]) => {
+    const sql = typeof input === 'string' ? input : input.text;
+    const parameters = values ?? (typeof input === 'string' ? undefined : input.values);
+    if (parameters?.length) return db.query(sql, parameters);
+    return (await db.exec(sql)).at(-1) ?? { rows: [] };
+  } } as unknown as ClientBase;
   const options = { ...migrationOptions, dbClient };
+  const count = (await readdir(migrationOptions.dir)).filter(name => name.endsWith('.sql')).length;
   await assert.rejects(checkDatabaseReadiness(dbClient as never));
-  const migrationCount = (await readdir(migrationOptions.dir)).filter((name) => name.endsWith('.sql')).length;
-  assert.equal((await runner(options)).length, migrationCount);
+  await runner({ ...options, count: count - 1 });
+  const userId = randomUUID(), householdId = randomUUID(), memberId = randomUUID(), sessionId = randomUUID();
+  await db.query("INSERT INTO users(id,email,password_hash) VALUES($1,'retained@example.invalid','retained-hash')", [userId]);
+  await db.query("INSERT INTO households(id,name,base_currency_code,created_by_user_id,updated_by_user_id) VALUES($1,'Legacy','USD',$2,$2)", [householdId, userId]);
+  await db.query("INSERT INTO household_members(id,household_id,user_id,display_name,role,membership_status,created_by_user_id,updated_by_user_id) VALUES($1,$2,$3,'Owner','owner','active',$3,$3)", [memberId, householdId, userId]);
+  await db.query("INSERT INTO household_invitations(id,household_id,email,token_hash,invited_by_user_id,expires_at) VALUES($1,$2,'invited@example.invalid',$3,$4,now()+interval '1 day')", [randomUUID(), householdId, 'c'.repeat(64), userId]);
+  await db.query("INSERT INTO web_ledger_entities(household_id,entity_kind,id,revision,entity) VALUES($1,'account','legacy-account',1,$2)", [householdId, JSON.stringify({ id: 'legacy-account', householdId, revision: 1, openingBalances: [{ currency: 'USD', amountMinor: '999999' }] })]);
+  await db.query("INSERT INTO web_recurring_occurrences(household_id,rule_id,occurrence_date,transaction_id) VALUES($1,'old-rule','2026-10-01','old-transaction')", [householdId]);
+  await db.query('INSERT INTO web_operation_receipts(household_id,member_id,request_id,payload_sha256) VALUES($1,$2,$3,$4)', [householdId, memberId, randomUUID(), 'd'.repeat(64)]);
+  await db.query("INSERT INTO auth_sessions(id,user_id,access_token_hash,refresh_token_hash,access_expires_at,refresh_expires_at) VALUES($1,$2,$3,$4,now()+interval '15 minutes',now()+interval '30 days')", [sessionId, userId, 'a'.repeat(64), 'b'.repeat(64)]);
+  assert.equal((await runner(options)).length, 1);
   await checkDatabaseReadiness(dbClient as never);
   assert.equal((await runner(options)).length, 0);
-  const userId = randomUUID();
-  const householdId = randomUUID();
-  await db.query('INSERT INTO users (id, email, password_hash) VALUES ($1, $2, $3)', [userId, 'test@example.invalid', 'test-only-hash']);
-  await assert.rejects(db.query('INSERT INTO users (id, email, password_hash) VALUES ($1, $2, $3)', [randomUUID(), 'test@example.invalid', 'hash']), { code: '23505' });
-  await assert.rejects(db.query('INSERT INTO users (id, email, password_hash) VALUES ($1, $2, $3)', [randomUUID(), 'TEST@example.invalid', 'hash']), { code: '23514' });
-  await db.query(`INSERT INTO households (id, name, base_currency_code, created_by_user_id, updated_by_user_id)
-    VALUES ($1, 'Test household', 'USD', $2, $2)`, [householdId, userId]);
-  const insertMembership = (household: string, role = 'owner') => db.query(`
-    INSERT INTO household_members (id, household_id, user_id, display_name, role, membership_status, created_by_user_id, updated_by_user_id)
-    VALUES ($1, $2, $3, 'Test member', $4, 'active', $3, $3)`, [randomUUID(), household, userId, role]);
-  await assert.rejects(insertMembership(randomUUID()), { code: '23503' });
-  await assert.rejects(insertMembership(householdId, 'admin'), { code: '23514' });
-  await insertMembership(householdId);
-  await assert.rejects(insertMembership(householdId), { code: '23505' });
-  const personalId = randomUUID();
-  await db.query(`INSERT INTO households (id, name, base_currency_code, created_by_user_id, updated_by_user_id, personal_owner_user_id)
-    VALUES ($1, 'Personal', 'USD', $2, $2, $2)`, [personalId, userId]);
-  await assert.rejects(db.query(`INSERT INTO households (id, name, base_currency_code, created_by_user_id, updated_by_user_id, personal_owner_user_id)
-    VALUES ($1, 'Duplicate personal', 'USD', $2, $2, $2)`, [randomUUID(), userId]), { code: '23505' });
-  const otherUserId = randomUUID();
-  await db.query('INSERT INTO users (id, email, password_hash) VALUES ($1, $2, $3)', [otherUserId, 'other@example.invalid', 'test-only-hash']);
-  await assert.rejects(db.query(`INSERT INTO households (id, name, base_currency_code, created_by_user_id, updated_by_user_id, personal_owner_user_id)
-    VALUES ($1, 'Wrong owner', 'USD', $2, $2, $3)`, [randomUUID(), userId, otherUserId]), { code: '23514' });
-  await assert.rejects(db.query(`
-    INSERT INTO auth_sessions (
-      id, user_id, access_token_hash, refresh_token_hash, access_expires_at, refresh_expires_at
-    ) VALUES ($1, $2, 'not-a-hash', 'also-not-a-hash', now() + interval '15 minutes', now() + interval '30 days')
-  `, [randomUUID(), userId]), { code: '23514' });
-  // Rolling back all schema history cannot remove identity/financial records;
-  // disposable cache migrations may independently support rollback.
-  await assert.rejects(runner({ ...options, direction: 'down', count: migrationCount }));
-  assert.equal((await db.query('SELECT id FROM users')).rows.length, 2);
+  assert.equal((await db.query('SELECT password_hash FROM users WHERE id=$1', [userId])).rows[0]?.password_hash, 'retained-hash');
+  assert.equal((await db.query('SELECT id FROM auth_sessions WHERE id=$1', [sessionId])).rows.length, 1);
+  for (const name of ['households', 'household_members', 'household_invitations', 'web_ledger_entities', 'web_recurring_occurrences', 'web_operation_receipts']) {
+    assert.equal((await db.query('SELECT to_regclass($1) AS relation', [`public.${name}`])).rows[0]?.relation, null);
+  }
+  for (const name of ['personal_ledgers', 'ledger_entities', 'ledger_recurring_occurrences', 'ledger_operation_receipts']) {
+    assert.equal((await db.query(`SELECT count(*)::int AS count FROM ${name}`)).rows[0]?.count, 0);
+  }
+  const ledgerId = randomUUID();
+  await db.query("INSERT INTO personal_ledgers(id,owner_user_id,base_currency_code,created_by_user_id,updated_by_user_id) VALUES($1,$2,'USD',$2,$2)", [ledgerId, userId]);
+  await assert.rejects(db.query("INSERT INTO personal_ledgers(id,owner_user_id,base_currency_code,created_by_user_id,updated_by_user_id) VALUES($1,$2,'USD',$2,$2)", [randomUUID(), userId]), { code: '23505' });
+  await assert.rejects(db.query("INSERT INTO ledger_entities(ledger_id,entity_kind,id,revision,entity) VALUES($1,'account','invalid',1,$2)", [ledgerId, JSON.stringify({ id: 'invalid', ledgerId: randomUUID(), revision: 1 })]), { code: '23514' });
+  await assert.rejects(runner({ ...options, direction: 'down', count }));
+  assert.equal((await db.query('SELECT id FROM users')).rows.length, 1);
 });

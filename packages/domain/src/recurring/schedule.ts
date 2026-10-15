@@ -6,7 +6,7 @@ export function getRecurringPayment(rule: RecurringRule, transactions: Transacti
   if (rule.payment) return rule.payment;
   const template = transactions.find((item) => item.id === rule.templateTransactionId);
   if (!template || (template.transactionType !== 'income' && template.transactionType !== 'expense')) return null;
-  return { accountId: template.accountId, memberId: template.memberId, categoryId: template.categoryId,
+  return { accountId: template.accountId, categoryId: template.categoryId,
     transactionType: template.transactionType, originalAmount: template.originalAmount, description: template.description, notes: template.notes,
     splits: splits.filter((item) => item.transactionId === template.id && !item.deletedAt).map(({ categoryId, amount }) => ({ categoryId, amount })) };
 }
@@ -15,8 +15,8 @@ export function getRecurringPayment(rule: RecurringRule, transactions: Transacti
 export function recurringTemplate(rule: RecurringRule, transactions: Transaction[]): Transaction | undefined {
   if (!rule.payment) return transactions.find((item) => item.id === rule.templateTransactionId && !item.deletedAt);
   const { splits: _, ...payment } = rule.payment;
-  return { id: rule.id, householdId: rule.householdId, createdAt: rule.createdAt, updatedAt: rule.updatedAt,
-    createdByMemberId: rule.createdByMemberId, updatedByMemberId: rule.updatedByMemberId, revision: rule.revision, deletedAt: null,
+  return { id: rule.id, ledgerId: rule.ledgerId, createdAt: rule.createdAt, updatedAt: rule.updatedAt,
+    createdByUserId: rule.createdByUserId, updatedByUserId: rule.updatedByUserId, revision: rule.revision, deletedAt: null,
     ...payment, transactionDate: rule.startsOn, postingDate: null, source: 'recurring', status: 'planned', reportingAmount: null, fxSnapshot: null };
 }
 

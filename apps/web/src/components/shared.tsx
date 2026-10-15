@@ -5,7 +5,7 @@ import type { Language, Text } from '../i18n';
 import { displayAmount } from '../format';
 
 export const currencies = Object.keys(currencyMetadata) as MoneyCurrencyCode[];
-export type FeatureProps = { snapshot: LedgerSnapshot; t: Text; language: Language; locale: string; busy: boolean; command: (command: LedgerCommand) => Promise<LedgerSnapshot>; moneyDisplay: 'code' | 'symbol'; isPersonal?: boolean };
+export type FeatureProps = { snapshot: LedgerSnapshot; t: Text; language: Language; locale: string; busy: boolean; command: (command: LedgerCommand) => Promise<LedgerSnapshot>; moneyDisplay: 'code' | 'symbol' };
 export function Field({ label, children }: { label: string; children: ReactNode }) { return <label className="field"><span>{label}</span>{children}</label>; }
 export function CurrencySelect({ value, onChange, name = 'currency', codes = currencies }: { value?: MoneyCurrencyCode; onChange?: (currency: MoneyCurrencyCode) => void; name?: string; codes?: MoneyCurrencyCode[] }) {
   return <select name={name} value={value} onChange={onChange ? (event) => onChange(event.target.value as MoneyCurrencyCode) : undefined}>{codes.map((code) => <option key={code} value={code}>{code}</option>)}</select>;

@@ -33,7 +33,7 @@ export function Recurring(props: FeatureProps) {
   }), snapshot.transactions, today(), addDays(today(), 90), 12);
   async function toggle(rule: RecurringRule) {
     setError(''); setMessage('');
-    try { await command({ type: 'recurring.save', rule: { ...rule, ...audit(snapshot.member.id, rule), isActive: !rule.isActive }, expectedRevision: rule.revision, asOf: today() }); setMessage(rule.isActive ? t.paymentPaused : t.paymentResumed); }
+    try { await command({ type: 'recurring.save', rule: { ...rule, ...audit(snapshot.userId, rule), isActive: !rule.isActive }, expectedRevision: rule.revision, asOf: today() }); setMessage(rule.isActive ? t.paymentPaused : t.paymentResumed); }
     catch (failure) { setError(errorText(failure, t)); }
   }
   async function stop() {
@@ -70,13 +70,13 @@ export function Recurring(props: FeatureProps) {
 function PaymentEditor({ existing, onClose, ...props }: FeatureProps & { existing: RecurringRule | undefined; onClose: () => void }) {
   const { snapshot, t, language, locale, moneyDisplay, command, busy } = props;
   const initial = existing ? getRecurringPayment(existing, snapshot.transactions, snapshot.splits) : null;
-  const [fields] = useState(() => audit(snapshot.member.id, existing));
+  const [fields] = useState(() => audit(snapshot.userId, existing));
   const accounts = snapshot.accounts.filter((item) => !item.deletedAt);
   const initialAccount = accounts.find((item) => item.id === initial?.accountId) ?? accounts[0];
   const [name, setName] = useState(initial?.description ?? '');
   const [type, setType] = useState<'expense' | 'income'>(initial?.transactionType ?? 'expense');
   const [accountId, setAccountId] = useState(initialAccount?.id ?? '');
-  const [currency, setCurrency] = useState(initial?.originalAmount.currency ?? initialAccount?.primaryCurrency ?? snapshot.household.baseCurrency);
+  const [currency, setCurrency] = useState(initial?.originalAmount.currency ?? initialAccount?.primaryCurrency ?? snapshot.ledger.baseCurrency);
   const [amount, setAmount] = useState(initial ? majorInput(initial.originalAmount) : '');
   const [categoryId, setCategoryId] = useState(initial?.categoryId ?? '');
   const [notes, setNotes] = useState(initial?.notes ?? '');
@@ -99,7 +99,7 @@ function PaymentEditor({ existing, onClose, ...props }: FeatureProps & { existin
   const interval = preset === 'yearly' ? 12 : preset === 'custom' ? Number(customInterval) : 1;
   const startsOn = existing && preserveAnchor && firstDate === initialNext && frequency === existing.frequency && interval === existing.interval ? existing.startsOn : firstDate;
   const scheduleValid = Number.isInteger(interval) && interval > 0 && interval <= 36500 && /^\d{4}-\d{2}-\d{2}$/.test(firstDate) && (!hasEnd || /^\d{4}-\d{2}-\d{2}$/.test(endDate) && endDate >= firstDate);
-  const previewRule: RecurringRule = { ...fields, householdId: snapshot.household.id, templateTransactionId: existing?.templateTransactionId ?? null,
+  const previewRule: RecurringRule = { ...fields, ledgerId: snapshot.ledger.id, templateTransactionId: existing?.templateTransactionId ?? null,
     frequency, interval, startsOn, endsOn: hasEnd ? endDate : null, isActive: true, skipThrough: existing ? today() : null };
   const dates: string[] = [];
   if (scheduleValid) {
@@ -128,7 +128,7 @@ function PaymentEditor({ existing, onClose, ...props }: FeatureProps & { existin
         if (total !== entered.amountMinor) throw new Error();
       } catch { setError(t.splitError); return; }
     }
-    const payment: RecurringPayment = { accountId, memberId: initial?.memberId ?? snapshot.member.id, transactionType: type, categoryId: split ? null : categoryId || null,
+    const payment: RecurringPayment = { accountId, transactionType: type, categoryId: split ? null : categoryId || null,
       originalAmount, description: name.trim(), notes: notes.trim() || null, splits: paymentSplits };
     try { await command({ type: 'recurring.save', expectedRevision: existing?.revision ?? 0, asOf: today(), rule: { ...previewRule, payment, isActive: existing?.isActive ?? true } }); onClose(); }
     catch (failure) { setError(errorText(failure, t)); }

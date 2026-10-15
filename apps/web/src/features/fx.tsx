@@ -10,7 +10,7 @@ import { Amount, CurrencySelect, ErrorMessage, Field, text, type FeatureProps } 
 export function Fx(props: FeatureProps) {
   const { t, snapshot, locale, moneyDisplay } = props;
   const [base, setBase] = useState<MoneyCurrencyCode>('USD');
-  const [quote, setQuote] = useState(snapshot.household.baseCurrency);
+  const [quote, setQuote] = useState(snapshot.ledger.baseCurrency);
   const [result, setResult] = useState<{ value: WireMoney; rate: FxRate } | null>(null);
   const [series, setSeries] = useState<FxRate[]>([]);
   const [error, setError] = useState('');

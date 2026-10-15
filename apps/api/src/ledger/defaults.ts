@@ -1,7 +1,7 @@
 import { defaultCategoryColors, type Category } from '@rttw/domain';
 
 // The mobile application's ten built-in category identities and localized labels.
-// Each website household receives independent rows with these stable identities.
+// Each website ledger receives independent rows with these stable identities.
 const defaults = [
   ['groceries', 'expense', 'Groceries', 'Продукти', 'Продукты', 'cart'],
   ['dining', 'expense', 'Dining out', 'Кафе та ресторани', 'Кафе и рестораны', 'restaurant'],
